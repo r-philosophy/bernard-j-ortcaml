@@ -1,0 +1,4 @@
+(library
+ (name bernard_j_ortcutt_lib)
+ (libraries async core yojson ocaml_reddit)
+ (preprocess (pps ppx_jane)))
