@@ -1,5 +1,5 @@
 (executable
  (name        main)
- (libraries   core async ocaml_reddit bernard_j_ortcutt_lib)
+ (libraries   core async reddit_api bernard_j_ortcutt_lib)
  (preprocess (pps ppx_jane))
 )
