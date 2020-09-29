@@ -2,6 +2,21 @@ open! Core
 open! Async
 open Reddit_api
 
+let retry_manager = failwith "asdf"
+
+let retry_or_fail retry_manager here ~f =
+  match%bind Retry_manager.call retry_manager f with
+  | Ok v -> return v
+  | Error (response, body) ->
+    let%bind body = Cohttp_async.Body.to_string body in
+    raise_s
+      [%message
+        "Reddit returned error"
+          (here : Source_code_position.t)
+          (response : Cohttp.Response.t)
+          (body : string)]
+;;
+
 module Target = struct
   type t =
     | Link of Thing.Link.t
@@ -32,26 +47,29 @@ module type S = sig
 
   type t [@@deriving sexp_of]
 
+  val tag : string
   val create : Config.t -> t
   val action : t -> Connection.t -> Target.t -> moderator:Username.t -> unit Deferred.t
   val after : (t -> Connection.t -> unit Deferred.t) option
 end
 
-module Locker : S = struct
+module Lock = struct
   module Config = Unit
 
   type t = unit [@@deriving sexp]
 
+  let tag = "Lock"
   let create = ident
 
   let action () connection (target : Target.t) ~moderator:_ =
-    Api.Exn.lock ~id:(Target.fullname target) connection
+    retry_or_fail retry_manager [%here] ~f:(fun () ->
+        Api.lock ~id:(Target.fullname target) connection)
   ;;
 
   let after = None
 end
 
-module Banner : S = struct
+module Ban = struct
   module Config = struct
     type t =
       { message : string
@@ -64,6 +82,7 @@ module Banner : S = struct
 
   type t = Config.t [@@deriving sexp]
 
+  let tag = "Ban"
   let create = ident
 
   let complete_message (t : t) (target : Target.t) =
@@ -85,20 +104,56 @@ module Banner : S = struct
   let action (t : t) connection target ~moderator:_ =
     let ban_message = complete_message t target in
     let author = Target.author target in
-    Api.Exn.add_relationship
-      ~relationship:Banned
-      ~username:author
-      ~subreddit:t.subreddit
-      ~duration:t.duration
-      ~ban_message
-      ~ban_reason:t.reason
-      connection
+    retry_or_fail retry_manager [%here] ~f:(fun () ->
+        Api.add_relationship
+          ~relationship:Banned
+          ~username:author
+          ~subreddit:t.subreddit
+          ~duration:t.duration
+          ~ban_message
+          ~ban_reason:t.reason
+          connection)
   ;;
 
   let after = None
 end
 
-module Modmailer : S = struct
+module Nuke = struct
+  module Config = Unit
+
+  type t = unit [@@deriving sexp]
+
+  let tag = "Nuke"
+  let create = ident
+
+  let action () connection (target : Target.t) ~moderator:_ =
+    let link =
+      match target with
+      | Link link -> Thing.Link.id link
+      | Comment comment -> Thing.Comment.link comment
+    in
+    let comment =
+      match target with
+      | Comment comment -> Some (Thing.Comment.id comment)
+      | Link _ -> None
+    in
+    let%bind comment_response =
+      retry_or_fail retry_manager [%here] ~f:(fun () ->
+          Api.comments ?comment connection ~link)
+    in
+    Iter_comments.iter_comments
+      connection
+      ~retry_manager
+      ~comment_response
+      ~f:(fun comment ->
+        let id = `Comment (Thing.Comment.id comment) in
+        retry_or_fail retry_manager [%here] ~f:(fun () -> Api.remove ~id connection))
+  ;;
+
+  let after = None
+end
+
+module Modmail = struct
   module Config = struct
     type t =
       { subject : string
@@ -110,17 +165,19 @@ module Modmailer : S = struct
 
   include Config
 
+  let tag = "Modmail"
   let create = ident
 
   let action { subject; body; subreddit } connection (target : Target.t) ~moderator:_ =
     let%bind (_ : Modmail.Conversation.t) =
-      Api.Exn.create_modmail_conversation
-        ~subject
-        ~body
-        ~to_:(Target.author target)
-        ~subreddit
-        ~hide_author:true
-        connection
+      retry_or_fail retry_manager [%here] ~f:(fun () ->
+          Api.create_modmail_conversation
+            ~subject
+            ~body
+            ~to_:(Target.author target)
+            ~subreddit
+            ~hide_author:true
+            connection)
     in
     return ()
   ;;
@@ -128,13 +185,14 @@ module Modmailer : S = struct
   let after = None
 end
 
-module Notifier : S = struct
+module Notify = struct
   module Config = struct
     type t = { text : string } [@@deriving sexp]
   end
 
   include Config
 
+  let tag = "Notify"
   let create = ident
 
   let footer =
@@ -152,10 +210,14 @@ module Notifier : S = struct
       | Comment comment -> `Comment (Thing.Comment.id comment)
     in
     (* TODO: Maybe it's too old *)
-    let%bind notification = Api.Exn.add_comment ~parent ~text:comment_text connection in
+    let%bind notification =
+      retry_or_fail retry_manager [%here] ~f:(fun () ->
+          Api.add_comment ~parent ~text:comment_text connection)
+    in
     let id = `Comment (Thing.Comment.id notification) in
     let%bind (_ : [ `Link of Thing.Link.t | `Comment of Thing.Comment.t ]) =
-      Api.Exn.distinguish ~id ~how:Mod connection
+      retry_or_fail retry_manager [%here] ~f:(fun () ->
+          Api.distinguish ~id ~how:Mod connection)
     in
     return ()
   ;;
@@ -163,7 +225,7 @@ module Notifier : S = struct
   let after = None
 end
 
-module Automod_watcher : S = struct
+module Watch_via_automod = struct
   module Target_attribute = struct
     type t =
       | Author
@@ -187,6 +249,8 @@ module Automod_watcher : S = struct
     ; subreddit : Subreddit_name.t
     }
   [@@deriving sexp_of]
+
+  let tag = "Watch_via_automod"
 
   let create ({ target_attribute; placeholder; subreddit } : Config.t) =
     { target_attribute; placeholder; subreddit; buffer = Queue.create () }
@@ -213,18 +277,21 @@ module Automod_watcher : S = struct
   ;;
 
   let update_wiki_page ?reason page connection ~f =
-    let%bind wiki_page = Api.Exn.wiki_page ~page connection in
+    let%bind wiki_page =
+      retry_or_fail retry_manager [%here] ~f:(fun () -> Api.wiki_page ~page connection)
+    in
     let content = Wiki_page.content wiki_page `markdown in
     let revision_id = Wiki_page.revision_id wiki_page in
     let rec loop content =
       let new_content = f content in
       match%bind
-        Api.Exn.edit_wiki_page
-          ~previous:revision_id
-          ~content:new_content
-          ?reason
-          ~page
-          connection
+        retry_or_fail retry_manager [%here] ~f:(fun () ->
+            Api.edit_wiki_page
+              ~previous:revision_id
+              ~content:new_content
+              ?reason
+              ~page
+              connection)
       with
       | Ok () -> return ()
       | Error conflict -> loop (Wiki_page.Edit_conflict.new_content conflict)
@@ -250,3 +317,33 @@ module Automod_watcher : S = struct
 
   let after = Some write_buffer
 end
+
+let modules_by_tag =
+  let modules : (module S) list =
+    [ (module Lock)
+    ; (module Ban)
+    ; (module Nuke)
+    ; (module Modmail)
+    ; (module Notify)
+    ; (module Watch_via_automod)
+    ]
+  in
+  List.map modules ~f:(fun ((module M : S) as m) -> M.tag, m)
+  |> String.Caseless.Map.of_alist_exn
+;;
+
+module Config = struct
+  type t = T : (module S with type Config.t = 'config) * 'config -> t
+
+  let t_of_sexp sexp =
+    let module_tag, config_sexp = [%of_sexp: string * Sexp.t] sexp in
+    let (module M) = Map.find_exn modules_by_tag module_tag in
+    T ((module M), [%of_sexp: M.Config.t] config_sexp)
+  ;;
+
+  let sexp_of_t (T ((module M), config)) = [%sexp_of: string * M.Config.t] (M.tag, config)
+end
+
+type t = T : (module S with type t = 't) * 't -> t
+
+let create (T ((module M), config) : Config.t) = T ((module M), M.create config)
