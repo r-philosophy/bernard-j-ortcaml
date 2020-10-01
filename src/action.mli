@@ -19,13 +19,14 @@ module Target : sig
 
   val of_thing : [< `Link of Thing.Link.t | `Comment of Thing.Comment.t ] -> t
   val kind : t -> Kind.t
+  val fullname : t -> [> `Link of Thing.Link.Id.t | `Comment of Thing.Comment.Id.t ]
 end
 
 module Automod_key : sig
   type t =
     | Author
     | Domain
-  [@@deriving sexp]
+  [@@deriving sexp, compare]
 end
 
 module Action_buffers : sig
@@ -58,7 +59,7 @@ type t =
       { key : Automod_key.t
       ; placeholder : string
       }
-[@@deriving sexp]
+[@@deriving sexp, compare, equal]
 
 val act
   :  t

@@ -2,8 +2,6 @@ open! Core
 open! Async
 open! Import
 
-let retry_manager = failwith "asdf"
-
 module Target = struct
   module Kind = struct
     module T = struct
@@ -150,13 +148,9 @@ let complete_ban_message message (target : Target.t) =
   message ^ footer
 ;;
 
-let remove (target : Target.t) ~connection =
-  let id =
-    match target with
-    | Link link -> `Link (Thing.Link.id link)
-    | Comment comment -> `Comment (Thing.Comment.id comment)
-  in
-  retry_or_fail retry_manager [%here] ~f:(fun () -> Api.remove ~id connection)
+let remove target ~connection =
+  retry_or_fail retry_manager [%here] ~f:(fun () ->
+      Api.remove ~id:(Target.fullname target) connection)
 ;;
 
 let ban target ~connection ~subreddit ~duration ~message ~reason =
@@ -242,7 +236,7 @@ module Automod_key = struct
   type t =
     | Author
     | Domain
-  [@@deriving sexp]
+  [@@deriving sexp, compare, equal]
 end
 
 let enqueue_automod_action target ~(key : Automod_key.t) ~placeholder ~buffers =
@@ -273,7 +267,7 @@ type t =
       { key : Automod_key.t
       ; placeholder : string
       }
-[@@deriving sexp]
+[@@deriving sexp, compare, equal]
 
 let act t ~target ~connection ~subreddit ~(action_buffers : Action_buffers.t) =
   match t with
