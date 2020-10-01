@@ -150,6 +150,15 @@ let complete_ban_message message (target : Target.t) =
   message ^ footer
 ;;
 
+let remove (target : Target.t) ~connection =
+  let id =
+    match target with
+    | Link link -> `Link (Thing.Link.id link)
+    | Comment comment -> `Comment (Thing.Comment.id comment)
+  in
+  retry_or_fail retry_manager [%here] ~f:(fun () -> Api.remove ~id connection)
+;;
+
 let ban target ~connection ~subreddit ~duration ~message ~reason =
   let ban_message = complete_ban_message message target in
   let author = Target.author target in
@@ -259,6 +268,7 @@ type t =
       ; body : string
       }
   | Notify of { text : string }
+  | Remove
   | Watch_via_automod of
       { key : Automod_key.t
       ; placeholder : string
@@ -273,6 +283,7 @@ let act t ~target ~connection ~subreddit ~(action_buffers : Action_buffers.t) =
   | Nuke -> nuke target ~connection
   | Modmail { subject; body } -> modmail target ~connection ~subject ~body ~subreddit
   | Notify { text } -> notify target ~connection ~text
+  | Remove -> remove target ~connection
   | Watch_via_automod { key; placeholder } ->
     let buffers = action_buffers.automod in
     enqueue_automod_action target ~key ~placeholder ~buffers

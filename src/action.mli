@@ -53,6 +53,7 @@ type t =
       ; body : string
       }
   | Notify of { text : string }
+  | Remove
   | Watch_via_automod of
       { key : Automod_key.t
       ; placeholder : string
