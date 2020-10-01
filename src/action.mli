@@ -1,6 +1,6 @@
 open! Core
 open! Async
-open Reddit_api
+open! Import
 
 module Target : sig
   module Kind : sig

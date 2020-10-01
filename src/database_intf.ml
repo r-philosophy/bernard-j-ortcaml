@@ -1,5 +1,6 @@
 open! Core
-open Reddit_api
+open! Async
+open! Import
 
 module type Database = sig
   type t

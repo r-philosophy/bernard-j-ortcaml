@@ -1,6 +1,6 @@
 open! Core
 open! Async
-open Reddit_api
+open! Import
 
 let database = Database.create ()
 
