@@ -17,7 +17,7 @@ module type Database = sig
     :  t
     -> target:Action.Target.t
     -> action_summary:string
-    -> author:Username.t
+    -> author:Username.t option
     -> moderator:Username.t
     -> subreddit:Thing.Subreddit.Id.t
     -> time:Time_ns.t

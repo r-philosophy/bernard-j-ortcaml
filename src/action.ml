@@ -154,17 +154,24 @@ let remove target ~connection ~retry_manager =
 ;;
 
 let ban target ~connection ~retry_manager ~subreddit ~duration ~message ~reason =
-  let ban_message = complete_ban_message message target in
-  let author = Target.author target in
-  retry_or_fail retry_manager [%here] ~f:(fun () ->
-      Api.add_relationship
-        ~relationship:Banned
-        ~username:author
-        ~subreddit
-        ~duration
-        ~ban_message
-        ~ban_reason:reason
-        connection)
+  match Target.author target with
+  | None ->
+    Log.Global.info_s
+      [%message
+        "Skipping Ban action due to deleted author"
+          ~target:(Target.fullname target : Thing.Fullname.t)];
+    return ()
+  | Some author ->
+    let ban_message = complete_ban_message message target in
+    retry_or_fail retry_manager [%here] ~f:(fun () ->
+        Api.add_relationship
+          ~relationship:Banned
+          ~username:author
+          ~subreddit
+          ~duration
+          ~ban_message
+          ~ban_reason:reason
+          connection)
 ;;
 
 let nuke (target : Target.t) ~connection ~retry_manager =
@@ -192,17 +199,25 @@ let nuke (target : Target.t) ~connection ~retry_manager =
 ;;
 
 let modmail (target : Target.t) ~connection ~retry_manager ~subject ~body ~subreddit =
-  let%bind (_ : Modmail.Conversation.t) =
-    retry_or_fail retry_manager [%here] ~f:(fun () ->
-        Api.create_modmail_conversation
-          ~subject
-          ~body
-          ~to_:(Target.author target)
-          ~subreddit
-          ~hide_author:true
-          connection)
-  in
-  return ()
+  match Target.author target with
+  | None ->
+    Log.Global.info_s
+      [%message
+        "Skipping Modmail action due to deleted author"
+          ~target:(Target.fullname target : Thing.Fullname.t)];
+    return ()
+  | Some author ->
+    let%bind (_ : Modmail.Conversation.t) =
+      retry_or_fail retry_manager [%here] ~f:(fun () ->
+          Api.create_modmail_conversation
+            ~subject
+            ~body
+            ~to_:author
+            ~subreddit
+            ~hide_author:true
+            connection)
+    in
+    return ()
 ;;
 
 let notification_footer =
@@ -242,11 +257,18 @@ end
 let enqueue_automod_action target ~(key : Automod_key.t) ~placeholder ~buffers =
   let string_to_add =
     match key with
-    | Author -> Username.to_string (Target.author target)
-    | Domain -> Json.get_string (Target.get_field_exn target "domain")
+    | Domain -> Some (Json.get_string (Target.get_field_exn target "domain"))
+    | Author ->
+      (match Target.author target with
+      | Some author -> Some (Username.to_string author)
+      | None ->
+        Log.Global.info_s
+          [%message
+            "Skipping Watch_via_automod action due to deleted author"
+              ~target:(Target.fullname target : Thing.Fullname.t)];
+        None)
   in
-  Automod_action_buffers.add buffers ~placeholder ~value:string_to_add;
-  return ()
+  Option.iter string_to_add ~f:(fun value -> Automod_action_buffers.add buffers ~placeholder ~value)
 ;;
 
 type t =
@@ -288,5 +310,6 @@ let act
   | Remove -> remove target ~connection ~retry_manager
   | Watch_via_automod { key; placeholder } ->
     let buffers = action_buffers.automod in
-    enqueue_automod_action target ~key ~placeholder ~buffers
+    enqueue_automod_action target ~key ~placeholder ~buffers;
+    return ()
 ;;

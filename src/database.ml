@@ -51,7 +51,11 @@ let already_acted t ~target ~moderator =
 ;;
 
 let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
-  let%bind author_id = get_or_create_user_id t ~username:author in
+  let%bind author_id =
+    match author with
+    | None -> return Pgx_value.null
+    | Some username -> get_or_create_user_id t ~username
+  in
   let%bind moderator_id = get_or_create_user_id t ~username:moderator in
   let subreddit_id = Thing.Subreddit.Id.to_int subreddit |> Pgx_value.of_int in
   let time = Time_ns.to_string time |> Pgx_value.of_string in
