@@ -17,10 +17,12 @@ type t =
   }
 [@@deriving sexp]
 
-val apply_to_target
-  :  t list
-  -> target:Action.Target.t
-  -> connection:Connection.t
-  -> subreddit:Subreddit_name.t
-  -> action_buffers:Action.Action_buffers.t
-  -> unit Deferred.t
+module Mod_report : sig
+  type t =
+    { moderator : Username.t
+    ; report : string
+    }
+end
+
+val find_matching_report : t -> target:Action.Target.t -> Mod_report.t option
+val will_remove : t -> bool

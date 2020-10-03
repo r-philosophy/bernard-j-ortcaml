@@ -2,8 +2,6 @@ open! Core
 open! Async
 open! Import
 
-let database = Database.create ()
-
 module Trigger = struct
   type t =
     { commands : String.Caseless.Set.t
@@ -33,7 +31,7 @@ module Mod_report = struct
   ;;
 end
 
-let find_triggering_report { trigger = { commands; kinds }; _ } ~target =
+let find_matching_report { trigger = { commands; kinds }; _ } ~target =
   let target_kind = Action.Target.kind target in
   match Set.mem kinds target_kind with
   | false -> None
@@ -50,33 +48,4 @@ let find_triggering_report { trigger = { commands; kinds }; _ } ~target =
         Set.mem commands report)
 ;;
 
-let approve_if_not_removing t ~target ~connection =
-  match List.mem t.actions Remove ~equal:Action.equal with
-  | true -> return ()
-  | false ->
-    retry_or_fail retry_manager [%here] ~f:(fun () ->
-        Api.approve ~id:(Action.Target.fullname target) connection)
-;;
-
-let apply_to_target ts ~target ~connection ~subreddit ~action_buffers =
-  match Database.already_acted target with
-  | true -> return ()
-  | false ->
-    (match
-       List.find_map ts ~f:(fun t ->
-           find_triggering_report t ~target
-           |> Option.map ~f:(fun ({ moderator; _ } : Mod_report.t) -> t, moderator))
-     with
-    | None -> return ()
-    | Some (t, moderator) ->
-      Database.log_rule_application
-        database
-        ~target
-        ~rule_description:t.info
-        ~moderator
-        ~time:(Time_ns.now ());
-      let%bind () = approve_if_not_removing t ~target ~connection in
-      Deferred.List.iter
-        t.actions
-        ~f:(Action.act ~target ~connection ~subreddit ~action_buffers))
-;;
+let will_remove t = List.mem t.actions Remove ~equal:Action.equal
