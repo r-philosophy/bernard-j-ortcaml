@@ -38,6 +38,7 @@ module Action_buffers : sig
   val commit_all
     :  t
     -> connection:Connection.t
+    -> retry_manager:Retry_manager.t
     -> subreddit:Subreddit_name.t
     -> unit Deferred.t
 end
@@ -66,6 +67,7 @@ val act
   :  t
   -> target:Target.t
   -> connection:Connection.t
+  -> retry_manager:Retry_manager.t
   -> subreddit:Subreddit_name.t
   -> action_buffers:Action_buffers.t
   -> unit Deferred.t

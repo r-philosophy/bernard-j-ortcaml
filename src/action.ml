@@ -71,7 +71,7 @@ module Automod_action_buffers = struct
           Re.replace_string regex ~by:replacement string)
   ;;
 
-  let update_wiki_page ?reason page connection ~f =
+  let update_wiki_page ?reason page connection ~retry_manager ~f =
     let%bind wiki_page =
       retry_or_fail retry_manager [%here] ~f:(fun () -> Api.wiki_page ~page connection)
     in
@@ -94,7 +94,7 @@ module Automod_action_buffers = struct
     loop content
   ;;
 
-  let commit_one buffer ~connection ~subreddit ~placeholder =
+  let commit_one buffer ~connection ~retry_manager ~subreddit ~placeholder =
     let transform_page =
       let regex = Re.compile (Re.str placeholder) in
       let replacement = String.concat (placeholder :: Queue.to_list buffer) ~sep:", " in
@@ -105,14 +105,14 @@ module Automod_action_buffers = struct
     let page : Wiki_page.Id.t =
       { subreddit = Some subreddit; page = "config/automoderator" }
     in
-    let%bind () = update_wiki_page page connection ~f:transform_page in
+    let%bind () = update_wiki_page page connection ~retry_manager ~f:transform_page in
     Queue.clear buffer;
     return ()
   ;;
 
-  let commit_all (t : t) ~connection ~subreddit =
+  let commit_all (t : t) ~connection ~retry_manager ~subreddit =
     Hashtbl.fold t ~init:Deferred.unit ~f:(fun ~key:placeholder ~data:buffer _ ->
-        commit_one buffer ~connection ~subreddit ~placeholder)
+        commit_one buffer ~connection ~retry_manager ~subreddit ~placeholder)
   ;;
 end
 
@@ -121,13 +121,13 @@ module Action_buffers = struct
 
   let create () = { automod = Automod_action_buffers.create () }
 
-  let commit_all t ~connection ~subreddit =
-    let commit_one f _ _ buffer = f buffer ~connection ~subreddit in
+  let commit_all t ~connection ~retry_manager ~subreddit =
+    let commit_one f _ _ buffer = f buffer ~connection ~retry_manager ~subreddit in
     Fields.Direct.iter t ~automod:(commit_one Automod_action_buffers.commit_all)
   ;;
 end
 
-let lock target ~connection =
+let lock target ~connection ~retry_manager =
   retry_or_fail retry_manager [%here] ~f:(fun () ->
       Api.lock ~id:(Target.fullname target) connection)
 ;;
@@ -148,12 +148,12 @@ let complete_ban_message message (target : Target.t) =
   message ^ footer
 ;;
 
-let remove target ~connection =
+let remove target ~connection ~retry_manager =
   retry_or_fail retry_manager [%here] ~f:(fun () ->
       Api.remove ~id:(Target.fullname target) connection)
 ;;
 
-let ban target ~connection ~subreddit ~duration ~message ~reason =
+let ban target ~connection ~retry_manager ~subreddit ~duration ~message ~reason =
   let ban_message = complete_ban_message message target in
   let author = Target.author target in
   retry_or_fail retry_manager [%here] ~f:(fun () ->
@@ -167,7 +167,7 @@ let ban target ~connection ~subreddit ~duration ~message ~reason =
         connection)
 ;;
 
-let nuke (target : Target.t) ~connection =
+let nuke (target : Target.t) ~connection ~retry_manager =
   let link =
     match target with
     | Link link -> Thing.Link.id link
@@ -191,7 +191,7 @@ let nuke (target : Target.t) ~connection =
       retry_or_fail retry_manager [%here] ~f:(fun () -> Api.remove ~id connection))
 ;;
 
-let modmail (target : Target.t) ~connection ~subject ~body ~subreddit =
+let modmail (target : Target.t) ~connection ~retry_manager ~subject ~body ~subreddit =
   let%bind (_ : Modmail.Conversation.t) =
     retry_or_fail retry_manager [%here] ~f:(fun () ->
         Api.create_modmail_conversation
@@ -212,7 +212,7 @@ let notification_footer =
    your message will go unread."
 ;;
 
-let notify (target : Target.t) ~connection ~text =
+let notify (target : Target.t) ~connection ~retry_manager ~text =
   let comment_text = text ^ notification_footer in
   let parent =
     match target with
@@ -269,15 +269,23 @@ type t =
       }
 [@@deriving sexp, compare, equal]
 
-let act t ~target ~connection ~subreddit ~(action_buffers : Action_buffers.t) =
+let act
+    t
+    ~target
+    ~connection
+    ~retry_manager
+    ~subreddit
+    ~(action_buffers : Action_buffers.t)
+  =
   match t with
   | Ban { message; reason; duration } ->
-    ban target ~connection ~subreddit ~message ~reason ~duration
-  | Lock -> lock target ~connection
-  | Nuke -> nuke target ~connection
-  | Modmail { subject; body } -> modmail target ~connection ~subject ~body ~subreddit
-  | Notify { text } -> notify target ~connection ~text
-  | Remove -> remove target ~connection
+    ban target ~connection ~retry_manager ~subreddit ~message ~reason ~duration
+  | Lock -> lock target ~connection ~retry_manager
+  | Nuke -> nuke target ~connection ~retry_manager
+  | Modmail { subject; body } ->
+    modmail target ~connection ~retry_manager ~subject ~body ~subreddit
+  | Notify { text } -> notify target ~connection ~retry_manager ~text
+  | Remove -> remove target ~connection ~retry_manager
   | Watch_via_automod { key; placeholder } ->
     let buffers = action_buffers.automod in
     enqueue_automod_action target ~key ~placeholder ~buffers

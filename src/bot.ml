@@ -82,15 +82,15 @@ module Per_subreddit = struct
         in
         Deferred.List.iter
           rule.actions
-          ~f:(Action.act ~target ~connection ~subreddit ~action_buffers))
+          ~f:(Action.act ~target ~connection ~retry_manager ~subreddit ~action_buffers))
   ;;
 
-  let run_once ({ action_buffers; connection; subreddit; _ } as t) =
+  let run_once ({ action_buffers; connection; subreddit; retry_manager; _ } as t) =
     let%bind () =
       reports t
       >>| List.map ~f:target_of_thing
       >>= Deferred.List.iter ~f:(fun target -> handle_target t ~target)
     in
-    Action.Action_buffers.commit_all action_buffers ~connection ~subreddit
+    Action.Action_buffers.commit_all action_buffers ~connection ~retry_manager ~subreddit
   ;;
 end

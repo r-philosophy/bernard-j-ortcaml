@@ -2,9 +2,6 @@ open! Core
 open! Async
 include Reddit_api
 
-let retry_manager = failwith "asdf"
-let database = failwith "bernard"
-
 let retry_or_fail retry_manager here ~f =
   match%bind Retry_manager.call retry_manager f with
   | Ok v -> return v
