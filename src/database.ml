@@ -50,20 +50,10 @@ let already_acted t ~target ~moderator =
         "Unexpected database response" (rows : Pgx.row list) (target : Action.Target.t)]
 ;;
 
-(*
-  val log_rule_application
-    :  t
-    -> target:Action.Target.t
-    -> rule_description:string
-    -> moderator:Username.t
-    -> time:Time_ns.t
-    -> unit
-    *)
-
-let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit_id ~time =
+let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
   let%bind author_id = get_or_create_user_id t ~username:author in
   let%bind moderator_id = get_or_create_user_id t ~username:moderator in
-  let subreddit_id = Thing.Subreddit.Id.to_int subreddit_id |> Pgx_value.of_int in
+  let subreddit_id = Thing.Subreddit.Id.to_int subreddit |> Pgx_value.of_int in
   let time = Time_ns.to_string time |> Pgx_value.of_string in
   let params =
     List.concat
@@ -80,4 +70,43 @@ let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit
     t
     "INSERT INTO actions (target, action_summary, author, moderator, time, subreddit) \
      VALUES($1,$2,$3,$4,$5,$6,$7)"
+;;
+
+let update_subscriber_counts t ~subreddits =
+  Deferred.List.iter subreddits ~f:(fun subreddit ->
+      let subreddit_id =
+        Thing.Subreddit.id subreddit |> Thing.Subreddit.Id.to_int |> Pgx_value.of_int
+      in
+      let display_name =
+        Thing.Subreddit.name subreddit |> Subreddit_name.to_string |> Pgx_value.of_string
+      in
+      let%bind () =
+        Pgx_async.execute_unit
+          ~params:[ subreddit_id; display_name ]
+          t
+          "INSERT OR IGNORE INTO subreddits (id, display_name) VALUES($1,$2)"
+      in
+      let subscribers = Thing.Subreddit.subscribers subreddit |> Pgx_value.of_int in
+      Pgx_async.execute_unit
+        ~params:[ subscribers; subreddit_id ]
+        t
+        "UPDATE subreddits SET subscribers = $1 WHERE id = $2")
+;;
+
+let update_moderator_table t ~moderators ~subreddit =
+  Pgx_async.with_transaction t (fun t ->
+      let subreddit_id = Thing.Subreddit.Id.to_int subreddit |> Pgx_value.of_int in
+      let%bind () =
+        Pgx_async.execute_unit
+          ~params:[ subreddit_id ]
+          t
+          "DELETE FROM subreddit_moderator WHERE subreddit_id = $1"
+      in
+      Deferred.List.iter moderators ~f:(fun moderator ->
+          let%bind user_id = get_or_create_user_id t ~username:moderator in
+          Pgx_async.execute_unit
+            ~params:[ subreddit_id; user_id ]
+            t
+            "INSERT OR IGNORE INTO subreddit_moderator (subreddit_id, moderator_id) \
+             VALUES($1,$2)"))
 ;;

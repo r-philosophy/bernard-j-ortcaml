@@ -253,7 +253,7 @@ type t =
   | Ban of
       { message : string
       ; reason : string
-      ; duration : Api.Parameters.Relationship.Duration.t
+      ; duration : Api.Parameters.Relationship_spec.Duration.t
       }
   | Lock
   | Nuke

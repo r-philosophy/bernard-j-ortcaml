@@ -32,6 +32,7 @@ module Per_subreddit = struct
     ; subreddit_id : Thing.Subreddit.Id.t
     ; database : Database.t
     }
+  [@@deriving fields]
 
   let reports { subreddit; retry_manager; connection; _ } =
     get_full_listing
@@ -69,7 +70,7 @@ module Per_subreddit = struct
             ~target
             ~action_summary:rule.info
             ~author:(Action.Target.author target)
-            ~subreddit_id
+            ~subreddit:subreddit_id
             ~moderator
             ~time:(Time_ns.now ())
         in
@@ -127,7 +128,37 @@ let create ~subreddit_configs ~connection ~database =
   return { subreddits; connection; retry_manager; database }
 ;;
 
-let run_all t =
+let refresh_subreddit_tables { subreddits; connection; retry_manager; database } =
+  let subreddit_ids = List.map subreddits ~f:Per_subreddit.subreddit_id in
+  let%bind subreddits =
+    retry_or_fail retry_manager [%here] ~f:(fun () ->
+        Api.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))) connection)
+    >>| List.map ~f:(function
+            | `Subreddit v -> v
+            | (`Link _ | `Comment _) as thing ->
+              raise_s
+                [%message "Unexpected thing in info response" (thing : Thing.Poly.t)])
+  in
+  let%bind () = Database.update_subscriber_counts database ~subreddits in
+  Deferred.List.iter subreddits ~f:(fun subreddit ->
+      let subreddit_name = Thing.Subreddit.name subreddit in
+      let subreddit_id = Thing.Subreddit.id subreddit in
+      let%bind moderators =
+        get_full_listing
+          connection
+          [%here]
+          ~retry_manager
+          ~get_listing:(fun ?pagination ~limit connection ->
+            Api.moderators ?pagination ~limit connection ~subreddit:subreddit_name)
+        >>| List.map ~f:Relationship.Moderator.username
+      in
+      Database.update_moderator_table database ~moderators ~subreddit:subreddit_id)
+;;
+
+let run_forever t =
+  let%bind () = refresh_subreddit_tables t in
+  Clock_ns.every' (Time_ns.Span.of_string "5m") (fun () -> refresh_subreddit_tables t);
   Clock_ns.every' (Time_ns.Span.of_string "30s") (fun () ->
-      Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
+      Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once);
+  never ()
 ;;
