@@ -94,3 +94,40 @@ module Per_subreddit = struct
     Action.Action_buffers.commit_all action_buffers ~connection ~retry_manager ~subreddit
   ;;
 end
+
+type t =
+  { subreddits : Per_subreddit.t list
+  ; connection : Connection.t
+  ; retry_manager : Retry_manager.t
+  ; database : Database.t
+  }
+
+let create ~subreddit_configs ~connection ~database =
+  let retry_manager = Retry_manager.create connection in
+  let%bind database = Database.create ~database in
+  let%bind subreddits =
+    Map.to_alist subreddit_configs
+    |> Deferred.List.map ~f:(fun (subreddit, rules) ->
+           let%bind subreddit_id =
+             retry_or_fail retry_manager [%here] ~f:(fun () ->
+                 Api.about_subreddit ~subreddit connection)
+             >>| Thing.Subreddit.id
+           in
+           return
+             ({ rules
+              ; action_buffers = Action.Action_buffers.create ()
+              ; connection
+              ; retry_manager
+              ; subreddit
+              ; subreddit_id
+              ; database
+              }
+               : Per_subreddit.t))
+  in
+  return { subreddits; connection; retry_manager; database }
+;;
+
+let run_all t =
+  Clock_ns.every' (Time_ns.Span.of_string "30s") (fun () ->
+      Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
+;;
