@@ -40,7 +40,7 @@ let already_acted t ~target ~moderator =
       ~params:(target_fullname_params target @ [ username_param moderator ])
       t
       "SELECT COUNT(1) FROM actions INNER JOIN users ON actions.moderator = users.id \
-       WHERE target = ($1, $2)::target_id AND users.username = $3"
+       WHERE target = ($1, $2)::thing_id AND users.username = $3"
   in
   match List.map rows ~f:(List.map ~f:Pgx_value.to_int) with
   | [ [ Some 0 ] ] -> return false
