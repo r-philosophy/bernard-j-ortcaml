@@ -74,7 +74,7 @@ let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit
     ~params
     t
     "INSERT INTO actions (target, action_summary, author, moderator, time, subreddit) \
-     VALUES($1,$2,$3,$4,$5,$6,$7)"
+     VALUES(($1,$2),$3,$4,$5,$6,$7)"
 ;;
 
 let update_subscriber_counts t ~subreddits =
