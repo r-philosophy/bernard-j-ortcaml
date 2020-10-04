@@ -95,19 +95,22 @@ module Automod_action_buffers = struct
   ;;
 
   let commit_one buffer ~connection ~retry_manager ~subreddit ~placeholder =
-    let transform_page =
-      let regex = Re.compile (Re.str placeholder) in
-      let replacement = String.concat (placeholder :: Queue.to_list buffer) ~sep:", " in
-      fun content ->
-        let content = unescape content in
-        Re.replace_string regex ~by:replacement content
-    in
-    let page : Wiki_page.Id.t =
-      { subreddit = Some subreddit; page = "config/automoderator" }
-    in
-    let%bind () = update_wiki_page page connection ~retry_manager ~f:transform_page in
-    Queue.clear buffer;
-    return ()
+    match Queue.to_list buffer with
+    | [] -> return ()
+    | to_insert ->
+      let transform_page =
+        let regex = Re.compile (Re.str placeholder) in
+        let replacement = String.concat (placeholder :: to_insert) ~sep:", " in
+        fun content ->
+          let content = unescape content in
+          Re.replace_string regex ~by:replacement content
+      in
+      let page : Wiki_page.Id.t =
+        { subreddit = Some subreddit; page = "config/automoderator" }
+      in
+      let%bind () = update_wiki_page page connection ~retry_manager ~f:transform_page in
+      Queue.clear buffer;
+      return ()
   ;;
 
   let commit_all (t : t) ~connection ~retry_manager ~subreddit =
