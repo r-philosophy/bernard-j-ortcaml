@@ -244,7 +244,7 @@ let notify (target : Target.t) ~connection ~retry_manager ~text =
   let%bind (_ : [ `Link of Thing.Link.t | `Comment of Thing.Comment.t ]) =
     retry_or_fail retry_manager [%here] ~f:(fun () ->
         Api.distinguish ~id ~how:Mod connection)
-  in
+  and () = lock target ~connection ~retry_manager in
   return ()
 ;;
 
