@@ -48,4 +48,4 @@ let find_matching_report { trigger = { commands; kinds }; _ } ~target =
         Set.mem commands report)
 ;;
 
-let will_remove t = List.mem t.actions Remove ~equal:Action.equal
+let will_remove t = List.exists t.actions ~f:Action.will_remove

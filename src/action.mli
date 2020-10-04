@@ -71,3 +71,5 @@ val act
   -> subreddit:Subreddit_name.t
   -> action_buffers:Action_buffers.t
   -> unit Deferred.t
+
+val will_remove : t -> bool

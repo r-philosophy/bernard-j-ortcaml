@@ -315,3 +315,9 @@ let act
     enqueue_automod_action target ~key ~placeholder ~buffers;
     return ()
 ;;
+
+let will_remove t =
+  match t with
+  | Remove | Nuke -> true
+  | Ban _ | Lock | Modmail _ | Notify _ | Watch_via_automod _ -> false
+;;
