@@ -197,7 +197,7 @@ let database_param =
   let%map_open.Command database =
     flag "-database" (required string) ~doc:"STRING postgres database"
   in
-  Database.create ~database
+  Pgx_async.connect ~database ()
 ;;
 
 let param =

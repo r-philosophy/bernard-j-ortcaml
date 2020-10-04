@@ -2,9 +2,8 @@ open! Core
 open! Async
 open! Import
 
-type t
+type t = Pgx_async.t
 
-val create : database:string -> t Deferred.t
 val already_acted : t -> target:Action.Target.t -> moderator:Username.t -> bool Deferred.t
 
 val log_rule_application

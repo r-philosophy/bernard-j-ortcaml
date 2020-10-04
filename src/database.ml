@@ -4,8 +4,6 @@ open! Import
 
 type t = Pgx_async.t
 
-let create ~database = Pgx_async.connect ~database ()
-
 let target_fullname_params target =
   let kind_int, id_int =
     match Action.Target.fullname target with
