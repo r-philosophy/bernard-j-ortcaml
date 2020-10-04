@@ -186,9 +186,10 @@ let per_subreddit_param =
       match String.chop_suffix filename ~suffix:".sexp" with
       | None -> None
       | Some subreddit_name ->
+        let absolute_path = Filename.concat config_path filename in
         Some
           ( Subreddit_name.of_string subreddit_name
-          , Sexp.load_sexps_conv_exn filename [%of_sexp: Rule.t] ))
+          , Sexp.load_sexps_conv_exn absolute_path [%of_sexp: Rule.t] ))
   |> Subreddit_name.Map.of_alist_exn
   |> return
 ;;
