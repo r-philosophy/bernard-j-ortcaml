@@ -51,6 +51,18 @@ let already_acted t ~target ~moderator =
         "Unexpected database response" (rows : Pgx.row list) (target : Action.Target.t)]
 ;;
 
+let add_comment t ~target_fullname_params ~author_id ~subreddit_id ~time ~json =
+  let json = Json.value_to_string json |> Pgx_value.of_string in
+  let params =
+    List.concat
+      [ target_fullname_params; [ author_id ]; [ subreddit_id ]; [ time ]; [ json ] ]
+  in
+  Pgx_async.execute_unit
+    ~params
+    t
+    "INSERT INTO contents (id, author, subreddit, time, json) VALUES(($1,$2),$3,$4,$5,$6)"
+;;
+
 let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
   let%bind author_id =
     match author with
@@ -58,23 +70,33 @@ let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit
     | Some username -> get_or_create_user_id t ~username
   in
   let%bind moderator_id = get_or_create_user_id t ~username:moderator in
+  let target_fullname_params = target_fullname_params target in
   let subreddit_id = Thing.Subreddit.Id.to_int subreddit |> Pgx_value.of_int in
   let time = Time_ns.to_string time |> Pgx_value.of_string in
-  let params =
-    List.concat
-      [ target_fullname_params target
-      ; [ Pgx_value.of_string action_summary ]
-      ; [ author_id ]
-      ; [ moderator_id ]
-      ; [ time ]
-      ; [ subreddit_id ]
-      ]
+  let%bind () =
+    match target with
+    | Link _ -> return ()
+    | Comment comment ->
+      let json = Thing.Comment.to_json comment in
+      add_comment t ~target_fullname_params ~author_id ~subreddit_id ~time ~json
+  and () =
+    let params =
+      List.concat
+        [ target_fullname_params
+        ; [ Pgx_value.of_string action_summary ]
+        ; [ author_id ]
+        ; [ moderator_id ]
+        ; [ time ]
+        ; [ subreddit_id ]
+        ]
+    in
+    Pgx_async.execute_unit
+      ~params
+      t
+      "INSERT INTO actions (target, action_summary, author, moderator, time, subreddit) \
+       VALUES(($1,$2),$3,$4,$5,$6,$7)"
   in
-  Pgx_async.execute_unit
-    ~params
-    t
-    "INSERT INTO actions (target, action_summary, author, moderator, time, subreddit) \
-     VALUES(($1,$2),$3,$4,$5,$6,$7)"
+  return ()
 ;;
 
 let update_subscriber_counts t ~subreddits =
