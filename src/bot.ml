@@ -105,7 +105,6 @@ type t =
 
 let create ~subreddit_configs ~connection ~database =
   let retry_manager = Retry_manager.create connection in
-  let%bind database = Database.create ~database in
   let%bind subreddits =
     Map.to_alist subreddit_configs
     |> Deferred.List.map ~f:(fun (subreddit, rules) ->
@@ -162,3 +161,54 @@ let run_forever t =
       Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once);
   never ()
 ;;
+
+let connection_param =
+  let%map_open.Command auth_config_path =
+    flag "-credentials" (required string) ~doc:"FILENAME Reddit API credentials"
+  in
+  let credentials =
+    Sexp.load_sexp_conv_exn auth_config_path [%of_sexp: Connection.Credentials.t]
+  in
+  Connection.create
+    credentials
+    ~user_agent:"BernardJOrtcutt v2.0 - by /u/L72_Elite_Kraken"
+;;
+
+let per_subreddit_param =
+  let%map_open.Command config_path =
+    flag
+      "-subreddits"
+      (required Filename.arg_type)
+      ~doc:"FILENAME Path to per-subreddit configs"
+  in
+  let%bind files = Sys.ls_dir config_path in
+  List.filter_map files ~f:(fun filename ->
+      match String.chop_suffix filename ~suffix:".sexp" with
+      | None -> None
+      | Some subreddit_name ->
+        Some
+          ( Subreddit_name.of_string subreddit_name
+          , Sexp.load_sexps_conv_exn filename [%of_sexp: Rule.t] ))
+  |> Subreddit_name.Map.of_alist_exn
+  |> return
+;;
+
+let database_param =
+  let%map_open.Command database =
+    flag "-database" (required string) ~doc:"STRING postgres database"
+  in
+  Database.create ~database
+;;
+
+let param =
+  let%map_open.Command connection = connection_param
+  and database = database_param
+  and subreddit_configs = per_subreddit_param in
+  fun () ->
+    let%bind database = database
+    and subreddit_configs = subreddit_configs in
+    let%bind t = create ~connection ~subreddit_configs ~database in
+    run_forever t
+;;
+
+let command = Command.async param ~summary:"Bernard J. Ortcutt moderation bot"
