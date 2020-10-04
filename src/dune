@@ -1,5 +1,6 @@
 (library
- (name bernard_j_ortcutt_lib)
+ (name bernard_j_ortcutt)
+ (public_name bernard_j_ortcutt)
  (libraries async core re pgx_async reddit_api)
  (preprocess
   (pps ppx_jane)))
