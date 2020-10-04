@@ -18,7 +18,10 @@ let username_param username = Pgx_value.of_string (Username.to_string username)
 let get_or_create_user_id t ~username =
   let params = [ username_param username ] in
   let%bind () =
-    Pgx_async.execute_unit ~params t "INSERT OR IGNORE INTO users (username) VALUES($1)"
+    Pgx_async.execute_unit
+      ~params
+      t
+      "INSERT INTO users (username) VALUES($1) ON CONFLICT DO NOTHING"
   in
   let%bind rows =
     Pgx_async.execute ~params t "SELECT id FROM users WHERE username = $1"
@@ -86,7 +89,7 @@ let update_subscriber_counts t ~subreddits =
         Pgx_async.execute_unit
           ~params:[ subreddit_id; display_name ]
           t
-          "INSERT OR IGNORE INTO subreddits (id, display_name) VALUES($1,$2)"
+          "INSERT INTO subreddits (id, display_name) VALUES($1,$2) ON CONFLICT DO NOTHING"
       in
       let subscribers = Thing.Subreddit.subscribers subreddit |> Pgx_value.of_int in
       Pgx_async.execute_unit
@@ -109,6 +112,6 @@ let update_moderator_table t ~moderators ~subreddit =
           Pgx_async.execute_unit
             ~params:[ subreddit_id; user_id ]
             t
-            "INSERT OR IGNORE INTO subreddit_moderator (subreddit_id, moderator_id) \
-             VALUES($1,$2)"))
+            "INSERT INTO subreddit_moderator (subreddit_id, moderator_id) VALUES($1,$2) \
+             ON CONFLICT DO NOTHING"))
 ;;
