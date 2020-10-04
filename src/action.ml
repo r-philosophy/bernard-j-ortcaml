@@ -268,7 +268,8 @@ let enqueue_automod_action target ~(key : Automod_key.t) ~placeholder ~buffers =
               ~target:(Target.fullname target : Thing.Fullname.t)];
         None)
   in
-  Option.iter string_to_add ~f:(fun value -> Automod_action_buffers.add buffers ~placeholder ~value)
+  Option.iter string_to_add ~f:(fun value ->
+      Automod_action_buffers.add buffers ~placeholder ~value)
 ;;
 
 type t =
