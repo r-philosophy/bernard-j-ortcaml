@@ -150,7 +150,7 @@ let complete_ban_message message (target : Target.t) =
 
 let remove target ~connection ~retry_manager =
   retry_or_fail retry_manager [%here] ~f:(fun () ->
-      Api.remove ~id:(Target.fullname target) connection)
+      Api.remove ~id:(Target.fullname target) ~spam:false connection)
 ;;
 
 let ban target ~connection ~retry_manager ~subreddit ~duration ~message ~reason =
@@ -195,7 +195,8 @@ let nuke (target : Target.t) ~connection ~retry_manager =
     ~comment_response
     ~f:(fun comment ->
       let id = `Comment (Thing.Comment.id comment) in
-      retry_or_fail retry_manager [%here] ~f:(fun () -> Api.remove ~id connection))
+      retry_or_fail retry_manager [%here] ~f:(fun () ->
+          Api.remove ~id ~spam:false connection))
 ;;
 
 let modmail (target : Target.t) ~connection ~retry_manager ~subject ~body ~subreddit =
