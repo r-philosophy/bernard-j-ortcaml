@@ -9,9 +9,9 @@ CREATE TABLE users (
 );
 
 CREATE TABLE subreddits (
-    id serial PRIMARY KEY,
+    id integer PRIMARY KEY,
     display_name text UNIQUE,
-    subscribers int
+    subscribers integer
 );
 
 CREATE TABLE modmails (
