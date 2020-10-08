@@ -3,14 +3,20 @@ CREATE TYPE thing_id AS (
     id bigint
 );
 
+CREATE COLLATION case_insensitive (
+    provider = icu,
+    locale = 'und-u-ks-level2',
+    deterministic = FALSE
+);
+
 CREATE TABLE users (
     id serial PRIMARY KEY,
-    username text UNIQUE
+    username text UNIQUE COLLATE case_insensitive
 );
 
 CREATE TABLE subreddits (
     id integer PRIMARY KEY,
-    display_name text UNIQUE,
+    display_name text UNIQUE COLLATE case_insensitive,
     subscribers integer
 );
 
