@@ -64,6 +64,7 @@ module Per_subreddit = struct
       (match%bind Database.already_acted database ~target ~moderator with
       | true -> return ()
       | false ->
+        let time = Time_ns.now () in
         let%bind () =
           Database.log_rule_application
             database
@@ -72,7 +73,7 @@ module Per_subreddit = struct
             ~author:(Action.Target.author target)
             ~subreddit:subreddit_id
             ~moderator
-            ~time:(Time_ns.now ())
+            ~time
         in
         let%bind () =
           match Rule.will_remove rule with
@@ -83,7 +84,15 @@ module Per_subreddit = struct
         in
         Deferred.List.iter
           rule.actions
-          ~f:(Action.act ~target ~connection ~retry_manager ~subreddit ~action_buffers))
+          ~f:
+            (Action.act
+               ~target
+               ~connection
+               ~retry_manager
+               ~subreddit
+               ~moderator
+               ~time
+               ~action_buffers))
   ;;
 
   let run_once ({ action_buffers; connection; subreddit; retry_manager; _ } as t) =

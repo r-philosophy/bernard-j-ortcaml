@@ -44,6 +44,10 @@ module Action_buffers : sig
 end
 
 type t =
+  | Add_usernote of
+      { level : string
+      ; text : string
+      }
   | Ban of
       { message : string
       ; reason : string
@@ -69,6 +73,8 @@ val act
   -> connection:Connection.t
   -> retry_manager:Retry_manager.t
   -> subreddit:Subreddit_name.t
+  -> moderator:Username.t
+  -> time:Time_ns.t
   -> action_buffers:Action_buffers.t
   -> unit Deferred.t
 

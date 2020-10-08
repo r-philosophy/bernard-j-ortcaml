@@ -49,7 +49,42 @@ module Target = struct
     | Link link -> Thing.Link.get_field_exn link
     | Comment comment -> Thing.Comment.get_field_exn comment
   ;;
+
+  let usernote_context t : Usernote_page.Note.Context.t =
+    match t with
+    | Link link -> Link (Thing.Link.id link)
+    | Comment comment ->
+      let link =
+        Thing.Comment.get_field_exn comment "submission_id"
+        |> Json.get_string
+        |> Thing.Link.Id.of_string
+      in
+      Comment (link, Thing.Comment.id comment)
+  ;;
 end
+
+let update_wiki_page ?reason page connection ~retry_manager ~f =
+  let%bind wiki_page =
+    retry_or_fail retry_manager [%here] ~f:(fun () -> Api.wiki_page ~page connection)
+  in
+  let content = Wiki_page.content wiki_page `markdown in
+  let revision_id = Wiki_page.revision_id wiki_page in
+  let rec loop content =
+    let new_content = f content in
+    match%bind
+      retry_or_fail retry_manager [%here] ~f:(fun () ->
+          Api.edit_wiki_page
+            ~previous:revision_id
+            ~content:new_content
+            ?reason
+            ~page
+            connection)
+    with
+    | Ok () -> return ()
+    | Error conflict -> loop (Wiki_page.Edit_conflict.new_content conflict)
+  in
+  loop content
+;;
 
 module Automod_action_buffers = struct
   type t = string Queue.t String.Table.t [@@deriving sexp_of]
@@ -71,33 +106,11 @@ module Automod_action_buffers = struct
           Re.replace_string regex ~by:replacement string)
   ;;
 
-  let update_wiki_page ?reason page connection ~retry_manager ~f =
-    let%bind wiki_page =
-      retry_or_fail retry_manager [%here] ~f:(fun () -> Api.wiki_page ~page connection)
-    in
-    let content = Wiki_page.content wiki_page `markdown in
-    let revision_id = Wiki_page.revision_id wiki_page in
-    let rec loop content =
-      let new_content = f content in
-      match%bind
-        retry_or_fail retry_manager [%here] ~f:(fun () ->
-            Api.edit_wiki_page
-              ~previous:revision_id
-              ~content:new_content
-              ?reason
-              ~page
-              connection)
-      with
-      | Ok () -> return ()
-      | Error conflict -> loop (Wiki_page.Edit_conflict.new_content conflict)
-    in
-    loop content
-  ;;
-
   let commit_one buffer ~connection ~retry_manager ~subreddit ~placeholder =
     match Queue.to_list buffer with
     | [] -> return ()
     | to_insert ->
+      Queue.clear buffer;
       let transform_page =
         let regex = Re.compile (Re.str placeholder) in
         let replacement = String.concat (placeholder :: to_insert) ~sep:", " in
@@ -108,25 +121,12 @@ module Automod_action_buffers = struct
       let page : Wiki_page.Id.t =
         { subreddit = Some subreddit; page = "config/automoderator" }
       in
-      let%bind () = update_wiki_page page connection ~retry_manager ~f:transform_page in
-      Queue.clear buffer;
-      return ()
+      update_wiki_page page connection ~retry_manager ~f:transform_page
   ;;
 
   let commit_all (t : t) ~connection ~retry_manager ~subreddit =
     Hashtbl.fold t ~init:Deferred.unit ~f:(fun ~key:placeholder ~data:buffer _ ->
         commit_one buffer ~connection ~retry_manager ~subreddit ~placeholder)
-  ;;
-end
-
-module Action_buffers = struct
-  type t = { automod : Automod_action_buffers.t } [@@deriving sexp_of, fields]
-
-  let create () = { automod = Automod_action_buffers.create () }
-
-  let commit_all t ~connection ~retry_manager ~subreddit =
-    let commit_one f _ _ buffer = f buffer ~connection ~retry_manager ~subreddit in
-    Fields.Direct.iter t ~automod:(commit_one Automod_action_buffers.commit_all)
   ;;
 end
 
@@ -277,6 +277,10 @@ let enqueue_automod_action target ~(key : Automod_key.t) ~placeholder ~buffers =
 ;;
 
 type t =
+  | Add_usernote of
+      { level : string
+      ; text : string
+      }
   | Ban of
       { message : string
       ; reason : string
@@ -296,15 +300,77 @@ type t =
       }
 [@@deriving sexp, compare, equal]
 
+module Usernote_action_buffers = struct
+  type t = (Username.t * Usernote_page.Note.Spec.t) Queue.t [@@deriving sexp_of]
+
+  let create () = Queue.create ()
+  let add t ~user ~note = Queue.enqueue t (user, note)
+
+  let commit t ~connection ~retry_manager ~subreddit =
+    match Queue.to_list t with
+    | [] -> return ()
+    | notes ->
+      Queue.clear t;
+      let transform_page page =
+        let page = Json.of_string page |> Usernote_page.of_json in
+        List.iter notes ~f:(fun (username, spec) ->
+            Usernote_page.add_note page ~username ~spec);
+        Usernote_page.to_json page |> Json.value_to_string
+      in
+      let page : Wiki_page.Id.t = { subreddit = Some subreddit; page = "usernotes" } in
+      update_wiki_page page connection ~retry_manager ~f:transform_page
+  ;;
+end
+
+module Action_buffers = struct
+  type t =
+    { automod : Automod_action_buffers.t
+    ; usernote : Usernote_action_buffers.t
+    }
+  [@@deriving sexp_of, fields]
+
+  let create () =
+    { automod = Automod_action_buffers.create ()
+    ; usernote = Usernote_action_buffers.create ()
+    }
+  ;;
+
+  let commit_all { automod; usernote } ~connection ~retry_manager ~subreddit =
+    Deferred.all_unit
+      [ Automod_action_buffers.commit_all automod ~connection ~retry_manager ~subreddit
+      ; Usernote_action_buffers.commit usernote ~connection ~retry_manager ~subreddit
+      ]
+  ;;
+end
+
 let act
     t
     ~target
     ~connection
     ~retry_manager
     ~subreddit
+    ~moderator
+    ~time
     ~(action_buffers : Action_buffers.t)
   =
   match t with
+  | Add_usernote { level; text } ->
+    let user = Target.author target in
+    (match user with
+    | None -> return ()
+    | Some user ->
+      let buffers = action_buffers.usernote in
+      Usernote_action_buffers.add
+        buffers
+        ~user
+        ~note:
+          { text
+          ; warning = level
+          ; moderator
+          ; time
+          ; context = Target.usernote_context target
+          };
+      return ())
   | Ban { message; reason; duration } ->
     ban target ~connection ~retry_manager ~subreddit ~message ~reason ~duration
   | Lock -> lock target ~connection ~retry_manager
@@ -322,5 +388,5 @@ let act
 let will_remove t =
   match t with
   | Remove | Nuke -> true
-  | Ban _ | Lock | Modmail _ | Notify _ | Watch_via_automod _ -> false
+  | Add_usernote _ | Ban _ | Lock | Modmail _ | Notify _ | Watch_via_automod _ -> false
 ;;
