@@ -75,7 +75,7 @@ module Note = struct
     `O
       [ "n", `String text
       ; "l", `String (Context.to_string context)
-      ; "t", `Float (Time_ns.to_span_since_epoch time |> Time_ns.Span.to_sec)
+      ; "t", Json.int (Time_ns.to_span_since_epoch time |> Time_ns.Span.to_int_sec)
       ; "m", Json.int moderator_index
       ; "w", Json.int warning_index
       ]
