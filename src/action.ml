@@ -132,9 +132,8 @@ module Automod_action_buffers = struct
   ;;
 end
 
-let lock target ~connection ~retry_manager =
-  retry_or_fail retry_manager [%here] ~f:(fun () ->
-      Api.lock ~id:(Target.fullname target) connection)
+let lock id ~connection ~retry_manager =
+  retry_or_fail retry_manager [%here] ~f:(fun () -> Api.lock ~id connection)
 ;;
 
 let complete_ban_message message (target : Target.t) =
@@ -241,7 +240,7 @@ let notify (target : Target.t) ~connection ~retry_manager ~text =
     retry_or_fail retry_manager [%here] ~f:(fun () ->
         Api.add_comment ~parent ~text:comment_text connection)
   in
-  let id = `Comment (Thing.Comment.id notification) in
+  let notification_id = `Comment (Thing.Comment.id notification) in
   let sticky =
     match Target.kind target with
     | Link -> Some true
@@ -249,8 +248,8 @@ let notify (target : Target.t) ~connection ~retry_manager ~text =
   in
   let%bind (_ : [ `Link of Thing.Link.t | `Comment of Thing.Comment.t ]) =
     retry_or_fail retry_manager [%here] ~f:(fun () ->
-        Api.distinguish ?sticky ~id ~how:Mod connection)
-  and () = lock target ~connection ~retry_manager in
+        Api.distinguish ?sticky ~id:notification_id ~how:Mod connection)
+  and () = lock notification_id ~connection ~retry_manager in
   return ()
 ;;
 
@@ -390,7 +389,7 @@ let act
       return ())
   | Ban { message; reason; duration } ->
     ban target ~connection ~retry_manager ~subreddit ~message ~reason ~duration
-  | Lock -> lock target ~connection ~retry_manager
+  | Lock -> lock (Target.fullname target) ~connection ~retry_manager
   | Nuke -> nuke target ~connection ~retry_manager
   | Modmail { subject; body } ->
     modmail target ~connection ~retry_manager ~subject ~body ~subreddit
