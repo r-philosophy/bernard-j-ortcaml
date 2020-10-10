@@ -242,9 +242,14 @@ let notify (target : Target.t) ~connection ~retry_manager ~text =
         Api.add_comment ~parent ~text:comment_text connection)
   in
   let id = `Comment (Thing.Comment.id notification) in
+  let sticky =
+    match Target.kind target with
+    | Link -> Some true
+    | Comment -> None
+  in
   let%bind (_ : [ `Link of Thing.Link.t | `Comment of Thing.Comment.t ]) =
     retry_or_fail retry_manager [%here] ~f:(fun () ->
-        Api.distinguish ~id ~how:Mod connection)
+        Api.distinguish ?sticky ~id ~how:Mod connection)
   and () = lock target ~connection ~retry_manager in
   return ()
 ;;
