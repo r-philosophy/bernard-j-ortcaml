@@ -233,11 +233,7 @@ let notification_footer =
 
 let notify (target : Target.t) ~connection ~retry_manager ~text =
   let comment_text = text ^ notification_footer in
-  let parent =
-    match target with
-    | Link link -> raise_s [%message "Unexpected link" (link : Thing.Link.t)]
-    | Comment comment -> `Comment (Thing.Comment.id comment)
-  in
+  let parent = Target.fullname target in
   (* TODO: Maybe it's too old *)
   let%bind notification =
     retry_or_fail retry_manager [%here] ~f:(fun () ->
