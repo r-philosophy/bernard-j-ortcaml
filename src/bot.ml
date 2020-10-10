@@ -68,6 +68,14 @@ module Per_subreddit = struct
       (match%bind Database.already_acted database ~target ~moderator with
       | true -> return ()
       | false ->
+        Log.Global.info_s
+          [%sexp
+            { subreddit : Subreddit_name.t
+            ; action_summary : string = rule.info
+            ; author : Username.t option = Action.Target.author target
+            ; moderator : Username.t
+            ; target : Thing.Fullname.t = Action.Target.fullname target
+            }];
         let time = Time_ns.now () in
         let%bind () =
           Database.log_rule_application
