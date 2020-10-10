@@ -17,12 +17,5 @@ type t =
   }
 [@@deriving sexp]
 
-module Mod_report : sig
-  type t =
-    { moderator : Username.t
-    ; report : string
-    }
-end
-
-val find_matching_report : t -> target:Action.Target.t -> Mod_report.t option
+val find_matching_report : t -> target:Action.Target.t -> Moderator_report.t option
 val will_remove : t -> bool

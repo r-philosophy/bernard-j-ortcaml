@@ -21,6 +21,7 @@ module Target : sig
   val kind : t -> Kind.t
   val fullname : t -> [> `Link of Thing.Link.Id.t | `Comment of Thing.Comment.Id.t ]
   val author : t -> Username.t option
+  val moderator_reports : t -> Moderator_report.t list
 end
 
 module Automod_key : sig

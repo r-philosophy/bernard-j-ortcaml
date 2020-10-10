@@ -44,22 +44,24 @@ module Target = struct
     | Comment comment -> Thing.Comment.author comment
   ;;
 
-  let get_field_exn t =
-    match t with
-    | Link link -> Thing.Link.get_field_exn link
-    | Comment comment -> Thing.Comment.get_field_exn comment
-  ;;
-
   let usernote_context t : Usernote_page.Note.Context.t =
     match t with
     | Link link -> Link (Thing.Link.id link)
     | Comment comment ->
-      let link =
-        Thing.Comment.get_field_exn comment "submission_id"
-        |> Json.get_string
-        |> Thing.Link.Id.of_string
-      in
+      let link = Thing.Comment.link comment in
       Comment (link, Thing.Comment.id comment)
+  ;;
+
+  let moderator_reports t =
+    match t with
+    | Link link -> Thing.Link.moderator_reports link
+    | Comment comment -> Thing.Comment.moderator_reports comment
+  ;;
+
+  let permalink t =
+    match t with
+    | Link link -> Thing.Link.permalink link
+    | Comment comment -> Thing.Comment.permalink comment
   ;;
 end
 
@@ -141,12 +143,12 @@ let complete_ban_message message (target : Target.t) =
     | Link _ -> "post"
     | Comment _ -> "comment"
   in
-  let permalink = Json.get_string (Target.get_field_exn target "permalink") in
+  let permalink = Target.permalink target in
   let footer =
     sprintf
       "\n\nThis action was taken because of the following %s: %s"
       kind_string
-      (Uri.pct_encode permalink)
+      (Uri.pct_encode (Uri.to_string permalink))
   in
   message ^ footer
 ;;
@@ -254,10 +256,24 @@ module Automod_key = struct
   [@@deriving sexp, compare, equal]
 end
 
-let enqueue_automod_action target ~(key : Automod_key.t) ~placeholder ~buffers =
+let enqueue_automod_action
+    (target : Target.t)
+    ~(key : Automod_key.t)
+    ~placeholder
+    ~buffers
+  =
   let string_to_add =
     match key with
-    | Domain -> Some (Json.get_string (Target.get_field_exn target "domain"))
+    | Domain ->
+      let domain =
+        match target with
+        | Link link -> Thing.Link.domain link
+        | Comment _ ->
+          raise_s
+            [%message
+              "Got comment in (Watch_via_automod (key Domain))" (target : Target.t)]
+      in
+      Some domain
     | Author ->
       (match Target.author target with
       | Some author -> Some (Username.to_string author)

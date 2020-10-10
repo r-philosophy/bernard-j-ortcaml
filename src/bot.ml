@@ -57,10 +57,14 @@ module Per_subreddit = struct
     match
       List.find_map rules ~f:(fun rule ->
           Rule.find_matching_report rule ~target
-          |> Option.map ~f:(fun ({ moderator; _ } : Rule.Mod_report.t) -> rule, moderator))
+          |> Option.map ~f:(fun ({ moderator; _ } : Moderator_report.t) ->
+                 rule, moderator))
     with
     | None -> return ()
-    | Some (rule, moderator) ->
+    | Some (_rule, None) ->
+      raise_s
+        [%message "A moderator deleted their account. Weird!" (target : Action.Target.t)]
+    | Some (rule, Some moderator) ->
       (match%bind Database.already_acted database ~target ~moderator with
       | true -> return ()
       | false ->
