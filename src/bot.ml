@@ -88,6 +88,15 @@ module Per_subreddit = struct
             ~time
         in
         let%bind () =
+          match target with
+          | Link _ -> return ()
+          | Comment _ ->
+            let%bind (`Ok | `Already_recorded) =
+              Database.record_contents database ~target
+            in
+            return ()
+        in
+        let%bind () =
           match Rule.will_remove rule with
           | true -> return ()
           | false ->

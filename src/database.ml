@@ -51,16 +51,64 @@ let already_acted t ~target ~moderator =
         "Unexpected database response" (rows : Pgx.row list) (target : Action.Target.t)]
 ;;
 
-let add_comment t ~target_fullname_params ~author_id ~subreddit_id ~time ~json =
-  let json = Json.value_to_string json |> Pgx_value.of_string in
+let record_contents t ~target =
+  let target_fullname_params = target_fullname_params target in
+  let json =
+    let json =
+      match target with
+      | Comment comment -> Thing.Comment.to_json comment
+      | Link link -> Thing.Link.to_json link
+    in
+    Json.value_to_string json |> Pgx_value.of_string
+  in
+  let%bind author_id =
+    match Action.Target.author target with
+    | None -> return Pgx_value.null
+    | Some username -> get_or_create_user_id t ~username
+  in
+  let%bind subreddit_id =
+    let subreddit =
+      match target with
+      | Comment comment -> Thing.Comment.subreddit comment
+      | Link link -> Thing.Link.subreddit link
+    in
+    let%bind rows =
+      Pgx_async.execute
+        ~params:[ Pgx_value.of_string (Subreddit_name.to_string subreddit) ]
+        t
+        "SELECT id FROM subreddits WHERE display_name = $1"
+    in
+    match rows with
+    | [ [ id ] ] -> return id
+    | _ ->
+      raise_s [%message "Unexpected subreddit_id rows" (rows : Pgx_value.t list list)]
+  in
+  let time =
+    (match target with
+    | Comment comment -> Thing.Comment.creation_time comment
+    | Link link -> Thing.Link.creation_time link)
+    |> Time_ns.to_string
+    |> Pgx_value.of_string
+  in
   let params =
     List.concat
       [ target_fullname_params; [ author_id ]; [ subreddit_id ]; [ time ]; [ json ] ]
   in
-  Pgx_async.execute_unit
-    ~params
-    t
-    "INSERT INTO contents (id, author, subreddit, time, json) VALUES(($1,$2),$3,$4,$5,$6)"
+  match%bind
+    Monitor.try_with (fun () ->
+        Pgx_async.execute_unit
+          ~params
+          t
+          "INSERT INTO contents (id, author, subreddit, time, json) \
+           VALUES(($1,$2),$3,$4,$5,$6)")
+  with
+  | Ok () -> return `Ok
+  | Error (Pgx.PostgreSQL_Error ((_ : string), { code = "23505"; _ })) ->
+    return `Already_recorded
+  | Error exn ->
+    raise_s
+      [%message
+        "Unexpected SQL error inserting contents" (exn : Exn.t) (target : Action.Target.t)]
 ;;
 
 let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
@@ -74,12 +122,6 @@ let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit
   let subreddit_id = Thing.Subreddit.Id.to_int subreddit |> Pgx_value.of_int in
   let time = Time_ns.to_string time |> Pgx_value.of_string in
   let%bind () =
-    match target with
-    | Link _ -> return ()
-    | Comment comment ->
-      let json = Thing.Comment.to_json comment in
-      add_comment t ~target_fullname_params ~author_id ~subreddit_id ~time ~json
-  and () =
     let params =
       List.concat
         [ target_fullname_params

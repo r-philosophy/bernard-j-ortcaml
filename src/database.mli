@@ -6,6 +6,11 @@ type t = Pgx_async.t
 
 val already_acted : t -> target:Action.Target.t -> moderator:Username.t -> bool Deferred.t
 
+val record_contents
+  :  t
+  -> target:Action.Target.t
+  -> [ `Ok | `Already_recorded ] Deferred.t
+
 val log_rule_application
   :  t
   -> target:Action.Target.t
