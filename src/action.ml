@@ -147,7 +147,7 @@ let complete_ban_message message (target : Target.t) =
     sprintf
       "\n\nThis action was taken because of the following %s: %s"
       kind_string
-      (Uri.pct_encode (Uri.to_string permalink))
+      (Uri.to_string permalink)
   in
   message ^ footer
 ;;
