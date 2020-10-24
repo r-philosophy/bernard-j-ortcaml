@@ -185,11 +185,21 @@ let refresh_subreddit_tables { subreddits; connection; retry_manager; database }
 ;;
 
 let run_forever t =
+  let stop =
+    Deferred.create (fun ivar ->
+        Signal.handle Signal.terminating ~f:(fun signal ->
+            Log.Global.info_s [%message "Stopping on signal" (signal : Signal.t)];
+            Ivar.fill ivar ()))
+  in
   let%bind () = refresh_subreddit_tables t in
-  Clock_ns.every' (Time_ns.Span.of_string "5m") (fun () -> refresh_subreddit_tables t);
-  Clock_ns.every' (Time_ns.Span.of_string "30s") (fun () ->
-      Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once);
-  never ()
+  let run_until_stop span f =
+    Deferred.create (fun finished -> Clock_ns.every' ~stop ~finished span f)
+  in
+  Deferred.all_unit
+    [ run_until_stop (Time_ns.Span.of_string "5m") (fun () -> refresh_subreddit_tables t)
+    ; run_until_stop (Time_ns.Span.of_string "30s") (fun () ->
+          Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
+    ]
 ;;
 
 let connection_param =
