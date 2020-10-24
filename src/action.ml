@@ -217,7 +217,7 @@ let modmail (target : Target.t) ~connection ~retry_manager ~subject ~body ~subre
           Api.create_modmail_conversation
             ~subject
             ~body
-            ~to_:author
+            ~to_:(User author)
             ~subreddit
             ~hide_author:true
             connection)
