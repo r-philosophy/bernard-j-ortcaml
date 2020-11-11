@@ -7,7 +7,7 @@ module Trigger = struct
     { commands : String.Caseless.Set.t
     ; kinds : Action.Target.Kind.Set.t
     }
-  [@@deriving sexp]
+  [@@deriving sexp, compare]
 end
 
 type t =
@@ -15,7 +15,7 @@ type t =
   ; trigger : Trigger.t
   ; actions : Action.t list
   }
-[@@deriving sexp]
+[@@deriving sexp, fields]
 
 let find_matching_report { trigger = { commands; kinds }; _ } ~target =
   let target_kind = Action.Target.kind target in
