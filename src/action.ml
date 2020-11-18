@@ -71,21 +71,19 @@ let update_wiki_page ?reason page connection ~retry_manager ~f =
   in
   let content = Wiki_page.content wiki_page `markdown in
   let revision_id = Wiki_page.revision_id wiki_page in
-  let rec loop content =
+  let rec loop content ~previous =
     let new_content = f content in
     match%bind
       retry_or_fail retry_manager [%here] ~f:(fun () ->
-          Api.edit_wiki_page
-            ~previous:revision_id
-            ~content:new_content
-            ?reason
-            ~page
-            connection)
+          Api.edit_wiki_page ~previous ~content:new_content ?reason ~page connection)
     with
     | Ok () -> return ()
-    | Error conflict -> loop (Wiki_page.Edit_conflict.new_content conflict)
+    | Error conflict ->
+      loop
+        (Wiki_page.Edit_conflict.new_content conflict)
+        ~previous:(Wiki_page.Edit_conflict.new_revision conflict)
   in
-  loop content
+  loop content ~previous:revision_id
 ;;
 
 module Automod_action_buffers = struct
