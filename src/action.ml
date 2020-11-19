@@ -83,7 +83,8 @@ let update_wiki_page ?reason page connection ~retry_manager ~f =
         (Wiki_page.Edit_conflict.new_content conflict)
         ~previous:(Wiki_page.Edit_conflict.new_revision conflict)
   in
-  loop content ~previous:revision_id
+  let%bind () = loop content ~previous:revision_id in
+  Clock_ns.after Time_ns.Span.second
 ;;
 
 module Automod_action_buffers = struct
