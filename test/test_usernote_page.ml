@@ -1,5 +1,5 @@
 open! Core
-open Reddit_api
+open Reddit_api_kernel
 module Usernote_page = Bernard_j_ortcutt.Usernote_page
 
 let%expect_test "Roundtrip example from docs" =

@@ -1,5 +1,5 @@
 open! Core
-open Reddit_api
+open! Import
 
 module Index_list (Param : sig
   type t [@@deriving sexp_of]

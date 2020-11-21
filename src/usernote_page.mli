@@ -1,5 +1,5 @@
 open! Core
-open Reddit_api
+open! Import
 
 module Note : sig
   module Context : sig

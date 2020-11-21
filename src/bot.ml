@@ -2,10 +2,9 @@ open! Core
 open! Async
 open! Import
 
-let get_full_listing connection here ~retry_manager ~get_listing =
+let get_full_listing here ~retry_manager ~get_listing =
   let get_one pagination =
-    retry_or_fail retry_manager here ~f:(fun () ->
-        get_listing ?pagination ~limit:100 connection)
+    retry_or_fail retry_manager here (get_listing ?pagination ~limit:100 ())
   in
   Deferred.repeat_until_finished (None, []) (fun (after, listings) ->
       let%bind listing = get_one after in
@@ -26,7 +25,6 @@ module Per_subreddit = struct
   type t =
     { rules : Rule.t list
     ; action_buffers : Action.Action_buffers.t
-    ; connection : Connection.t
     ; retry_manager : Retry_manager.t
     ; subreddit : Subreddit_name.t
     ; subreddit_id : Thing.Subreddit.Id.t
@@ -34,9 +32,8 @@ module Per_subreddit = struct
     }
   [@@deriving fields]
 
-  let reports { subreddit; retry_manager; connection; _ } =
+  let reports { subreddit; retry_manager; _ } =
     get_full_listing
-      connection
       [%here]
       ~retry_manager
       ~get_listing:(fun ?pagination ~limit connection ->
@@ -44,14 +41,7 @@ module Per_subreddit = struct
   ;;
 
   let handle_target
-      { rules
-      ; action_buffers
-      ; connection
-      ; retry_manager
-      ; subreddit
-      ; subreddit_id
-      ; database
-      }
+      { rules; action_buffers; retry_manager; subreddit; subreddit_id; database }
       ~target
     =
     match
@@ -100,15 +90,16 @@ module Per_subreddit = struct
           match Rule.will_remove rule with
           | true -> return ()
           | false ->
-            retry_or_fail retry_manager [%here] ~f:(fun () ->
-                Api.approve ~id:(Action.Target.fullname target) connection)
+            retry_or_fail
+              retry_manager
+              [%here]
+              (Api.approve ~id:(Action.Target.fullname target) ())
         in
         Deferred.List.iter
           rule.actions
           ~f:
             (Action.act
                ~target
-               ~connection
                ~retry_manager
                ~subreddit
                ~moderator
@@ -116,19 +107,18 @@ module Per_subreddit = struct
                ~action_buffers))
   ;;
 
-  let run_once ({ action_buffers; connection; subreddit; retry_manager; _ } as t) =
+  let run_once ({ action_buffers; subreddit; retry_manager; _ } as t) =
     let%bind () =
       reports t
       >>| List.map ~f:target_of_thing
       >>= Deferred.List.iter ~f:(fun target -> handle_target t ~target)
     in
-    Action.Action_buffers.commit_all action_buffers ~connection ~retry_manager ~subreddit
+    Action.Action_buffers.commit_all action_buffers ~retry_manager ~subreddit
   ;;
 end
 
 type t =
   { subreddits : Per_subreddit.t list
-  ; connection : Connection.t
   ; retry_manager : Retry_manager.t
   ; database : Database.t
   }
@@ -139,14 +129,12 @@ let create ~subreddit_configs ~connection ~database =
     Map.to_alist subreddit_configs
     |> Deferred.List.map ~f:(fun (subreddit, rules) ->
            let%bind subreddit_id =
-             retry_or_fail retry_manager [%here] ~f:(fun () ->
-                 Api.about_subreddit ~subreddit connection)
+             retry_or_fail retry_manager [%here] (Api.about_subreddit ~subreddit ())
              >>| Thing.Subreddit.id
            in
            return
              ({ rules
               ; action_buffers = Action.Action_buffers.create ()
-              ; connection
               ; retry_manager
               ; subreddit
               ; subreddit_id
@@ -154,14 +142,16 @@ let create ~subreddit_configs ~connection ~database =
               }
                : Per_subreddit.t))
   in
-  return { subreddits; connection; retry_manager; database }
+  return { subreddits; retry_manager; database }
 ;;
 
-let refresh_subreddit_tables { subreddits; connection; retry_manager; database } =
+let refresh_subreddit_tables { subreddits; retry_manager; database } =
   let subreddit_ids = List.map subreddits ~f:Per_subreddit.subreddit_id in
   let%bind subreddits =
-    retry_or_fail retry_manager [%here] ~f:(fun () ->
-        Api.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))) connection)
+    retry_or_fail
+      retry_manager
+      [%here]
+      (Api.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))) ())
     >>| List.map ~f:(function
             | `Subreddit v -> v
             | (`Link _ | `Comment _) as thing ->
@@ -174,7 +164,6 @@ let refresh_subreddit_tables { subreddits; connection; retry_manager; database }
       let subreddit_id = Thing.Subreddit.id subreddit in
       let%bind moderators =
         get_full_listing
-          connection
           [%here]
           ~retry_manager
           ~get_listing:(fun ?pagination ~limit connection ->

@@ -1,5 +1,5 @@
 (executable
  (name main)
- (libraries core async reddit_api bernard_j_ortcutt)
+ (libraries core async bernard_j_ortcutt)
  (preprocess
   (pps ppx_jane)))
