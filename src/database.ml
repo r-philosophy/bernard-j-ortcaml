@@ -7,10 +7,10 @@ type t = Pgx_async.t
 let target_fullname_params target =
   let kind_int, id_int =
     match Action.Target.fullname target with
-    | `Link id -> 3, Thing.Link.Id.to_int id
-    | `Comment id -> 1, Thing.Comment.Id.to_int id
+    | `Link id -> 3, Thing.Link.Id.to_int63 id
+    | `Comment id -> 1, Thing.Comment.Id.to_int63 id
   in
-  List.map [ kind_int; id_int ] ~f:Pgx_value.of_int
+  List.map [ kind_int; Int63.to_int_exn id_int ] ~f:Pgx_value.of_int
 ;;
 
 let username_param username = Pgx_value.of_string (Username.to_string username)
@@ -119,7 +119,9 @@ let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit
   in
   let%bind moderator_id = get_or_create_user_id t ~username:moderator in
   let target_fullname_params = target_fullname_params target in
-  let subreddit_id = Thing.Subreddit.Id.to_int subreddit |> Pgx_value.of_int in
+  let subreddit_id =
+    Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx_value.of_int
+  in
   let time = Time_ns.to_string time |> Pgx_value.of_string in
   let%bind () =
     let params =
@@ -144,7 +146,10 @@ let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit
 let update_subscriber_counts t ~subreddits =
   Deferred.List.iter subreddits ~f:(fun subreddit ->
       let subreddit_id =
-        Thing.Subreddit.id subreddit |> Thing.Subreddit.Id.to_int |> Pgx_value.of_int
+        Thing.Subreddit.id subreddit
+        |> Thing.Subreddit.Id.to_int63
+        |> Int63.to_int_exn
+        |> Pgx_value.of_int
       in
       let display_name =
         Thing.Subreddit.name subreddit |> Subreddit_name.to_string |> Pgx_value.of_string
@@ -164,7 +169,9 @@ let update_subscriber_counts t ~subreddits =
 
 let update_moderator_table t ~moderators ~subreddit =
   Pgx_async.with_transaction t (fun t ->
-      let subreddit_id = Thing.Subreddit.Id.to_int subreddit |> Pgx_value.of_int in
+      let subreddit_id =
+        Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx_value.of_int
+      in
       let%bind () =
         Pgx_async.execute_unit
           ~params:[ subreddit_id ]
