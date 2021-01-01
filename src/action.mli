@@ -48,23 +48,47 @@ type t =
       { level : string
       ; text : string
       }
+      (** Add a {{:https://www.reddit.com/r/toolbox/wiki/docs/usernotes}Reddit
+          Toolbox usernote} to the target author with the corresponding level
+          and text. *)
   | Ban of
-      { message : string
-      ; reason : string
+      { message : string (** Message displayed to the user *)
+      ; reason : string (** Reason available to moderators *)
       ; duration : Api.Parameters.Relationship_spec.Duration.t
-      }
-  | Lock
-  | Nuke
+      } (** Ban the target author. *)
+  | Lock (** Lock the target. *)
+  | Nuke (** Recursively remove the target and its replies. *)
   | Modmail of
       { subject : string
       ; body : string
-      }
+      } (** Send a modmail to the target author. *)
   | Notify of { text : string }
-  | Remove
+      (** Reply to the target and distinguish the resulting comment. *)
+  | Remove (** Remove the target. *)
   | Watch_via_automod of
       { key : Automod_key.t
       ; placeholder : string
       }
+      (** Add the [key] of the target to the subreddit's AutoMod config.
+
+          This action finds [placeholder] in the AutoMod config and adds the key
+          after it, expecting that the placeholder is found in a YAML list.
+
+          For example, if our key is "spez" and our placeholder is "do!not!remove",
+          this action assumes a list like the following exists in the AutoMod config:
+
+          {[ [do!not!remove, ketralnis, kn0thing] ]}
+
+          Afterwards, the list will look like this:
+
+          {[ [do!not!remove, spez, ketralnis, kn0thing] ]}
+
+          The change is a simple textual replacement and does not try to parse
+          markdown.
+
+          We recommend that placeholders contain a character that is legal
+          neither in usernames nor in domains, such as '!'.
+      *)
 [@@deriving sexp, compare, equal]
 
 val act
