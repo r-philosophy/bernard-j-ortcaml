@@ -4,6 +4,7 @@ open! Import
 
 type t = Pgx_async.t
 
+val target_fullname_params : Action.Target.t -> Pgx_value.t list
 val already_acted : t -> target:Action.Target.t -> moderator:Username.t -> bool Deferred.t
 val get_or_create_user_id : t -> username:Username.t -> Pgx_value.t Deferred.t
 
