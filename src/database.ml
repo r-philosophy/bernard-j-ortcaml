@@ -103,12 +103,17 @@ let record_contents t ~target =
            VALUES(($1,$2),$3,$4,$5,$6)")
   with
   | Ok () -> return `Ok
-  | Error (Pgx.PostgreSQL_Error ((_ : string), { code = "23505"; _ })) ->
-    return `Already_recorded
   | Error exn ->
-    raise_s
-      [%message
-        "Unexpected SQL error inserting contents" (exn : Exn.t) (target : Action.Target.t)]
+    let exn = Monitor.extract_exn exn in
+    (match exn with
+    | Pgx.PostgreSQL_Error ((_ : string), { code = "23505"; _ }) ->
+      return `Already_recorded
+    | _ ->
+      raise_s
+        [%message
+          "Unexpected SQL error inserting contents"
+            (exn : Exn.t)
+            (target : Action.Target.t)])
 ;;
 
 let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
