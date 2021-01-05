@@ -26,5 +26,6 @@ type t =
   }
 [@@deriving sexp, fields]
 
+val validate : t Validate.check
 val find_matching_report : t -> target:Action.Target.t -> Moderator_report.t option
 val will_remove : t -> bool

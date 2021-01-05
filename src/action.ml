@@ -402,3 +402,30 @@ let will_remove t =
   | Remove | Nuke -> true
   | Add_usernote _ | Ban _ | Lock | Modmail _ | Notify _ | Watch_via_automod _ -> false
 ;;
+
+let validate =
+  let validate_max_length name length string =
+    Validate.name
+      name
+      (Validate.name
+         "length"
+         (Int.validate_ubound (String.length string) ~max:(Incl length)))
+  in
+  function
+  | Ban { message; reason; duration } ->
+    Validate.name
+      "Ban"
+      (Validate.of_list
+         [ validate_max_length "message" 1000 message
+         ; validate_max_length "reason" 100 reason
+         ; Validate.name
+             "duration"
+             (match duration with
+             | Permanent -> Validate.pass
+             | Days n -> Int.validate_bound ~min:(Incl 1) ~max:(Incl 999) n)
+         ])
+  | Modmail { subject; body = _ } ->
+    Validate.name "Modmail" (validate_max_length "subject" 100 subject)
+  | Notify { text } -> Validate.name "Notify" (validate_max_length "text" 10_000 text)
+  | Add_usernote _ | Lock | Nuke | Remove | Watch_via_automod _ -> Validate.pass
+;;

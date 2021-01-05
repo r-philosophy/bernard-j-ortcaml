@@ -91,6 +91,8 @@ type t =
       *)
 [@@deriving sexp, compare, equal]
 
+val validate : t Validate.check
+
 val act
   :  t
   -> target:Target.t
