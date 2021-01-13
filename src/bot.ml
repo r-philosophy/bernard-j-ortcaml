@@ -203,6 +203,13 @@ let connection_param =
     ~user_agent:"BernardJOrtcutt v2.0 - by /u/L72_Elite_Kraken"
 ;;
 
+let validate_per_subreddit_configs configs =
+  Map.to_alist configs
+  |> Validate.list
+       ~name:(fun (subreddit, _rules) -> Subreddit_name.to_string subreddit)
+       (fun (_subreddit, rules) -> Validate.list_indexed Rule.validate rules)
+;;
+
 let per_subreddit_param =
   let%map_open.Command config_path =
     flag
@@ -211,16 +218,18 @@ let per_subreddit_param =
       ~doc:"FILENAME Path to per-subreddit configs"
   in
   let%bind files = Sys.ls_dir config_path in
-  List.filter_map files ~f:(fun filename ->
-      match String.chop_suffix filename ~suffix:".sexp" with
-      | None -> None
-      | Some subreddit_name ->
-        let absolute_path = Filename.concat config_path filename in
-        Some
-          ( Subreddit_name.of_string subreddit_name
-          , Sexp.load_sexps_conv_exn absolute_path [%of_sexp: Rule.t] ))
-  |> Subreddit_name.Map.of_alist_exn
-  |> return
+  let rules_unvalidated =
+    List.filter_map files ~f:(fun filename ->
+        match String.chop_suffix filename ~suffix:".sexp" with
+        | None -> None
+        | Some subreddit_name ->
+          let absolute_path = Filename.concat config_path filename in
+          Some
+            ( Subreddit_name.of_string subreddit_name
+            , Sexp.load_sexps_conv_exn absolute_path [%of_sexp: Rule.t] ))
+    |> Subreddit_name.Map.of_alist_exn
+  in
+  return (Validate.valid_or_error rules_unvalidated validate_per_subreddit_configs)
 ;;
 
 let database_param =
@@ -235,10 +244,27 @@ let param =
   and database = database_param
   and subreddit_configs = per_subreddit_param in
   fun () ->
-    let%bind database = database
-    and subreddit_configs = subreddit_configs in
+    let%bind.Deferred.Or_error subreddit_configs = subreddit_configs
+    and database = Deferred.ok database in
     let%bind t = create ~connection ~subreddit_configs ~database in
-    run_forever t
+    let%bind () = run_forever t in
+    return (Ok ())
 ;;
 
-let command = Command.async param ~summary:"Bernard J. Ortcutt moderation bot"
+let main_command = Command.async_or_error ~summary:"Run the bot" param
+
+let validate_command =
+  Command.async_or_error
+    ~summary:"Validate configs"
+    (let%map_open.Command subreddit_configs = per_subreddit_param in
+     fun () ->
+       let open Deferred.Or_error.Let_syntax in
+       let%bind (_ : Rule.t list Subreddit_name.Map.t) = subreddit_configs in
+       return ())
+;;
+
+let command =
+  Command.group
+    ~summary:"Bernard J. Ortcutt moderation bot"
+    [ "run", main_command; "validate", validate_command ]
+;;
