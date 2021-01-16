@@ -7,13 +7,13 @@ let%expect_test "Roundtrip example from docs" =
   let sample =
     Json.of_string
       {|
-{  
+{
     "ver":6,
-    "constants": {  
-        "users": [  
+    "constants": {
+        "users": [
             "creesch", "TheEnigmaBlade"
         ],
-        "warnings": [  
+        "warnings": [
             "none"
         ]
     },

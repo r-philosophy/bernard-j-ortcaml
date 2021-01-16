@@ -100,11 +100,15 @@ module Automod_action_buffers = struct
   let unescape =
     let unsafe_characters =
       [ "&amp", "&"; "&lt", "<"; "&gt", ">" ]
-      |> List.map ~f:(Tuple2.map_fst ~f:(Fn.compose Re.compile Re.str))
+      |> List.map
+           ~f:(Tuple2.map_fst ~f:(String.Search_pattern.create ~case_sensitive:true))
     in
     fun html_string ->
-      List.fold unsafe_characters ~init:html_string ~f:(fun string (regex, replacement) ->
-          Re.replace_string regex ~by:replacement string)
+      List.fold
+        unsafe_characters
+        ~init:html_string
+        ~f:(fun string (pattern, replacement) ->
+          String.Search_pattern.replace_all pattern ~in_:string ~with_:replacement)
   ;;
 
   let commit_one buffer ~retry_manager ~subreddit ~placeholder =
@@ -113,11 +117,11 @@ module Automod_action_buffers = struct
     | to_insert ->
       Queue.clear buffer;
       let transform_page =
-        let regex = Re.compile (Re.str placeholder) in
+        let pattern = String.Search_pattern.create ~case_sensitive:true placeholder in
         let replacement = String.concat (placeholder :: to_insert) ~sep:", " in
         fun content ->
           let content = unescape content in
-          Re.replace_string regex ~by:replacement content
+          String.Search_pattern.replace_all pattern ~in_:content ~with_:replacement
       in
       let page : Wiki_page.Id.t =
         { subreddit = Some subreddit; page = "config/automoderator" }

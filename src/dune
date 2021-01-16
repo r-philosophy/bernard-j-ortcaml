@@ -1,7 +1,7 @@
 (library
  (name bernard_j_ortcutt)
  (public_name bernard_j_ortcutt)
- (libraries async base64 core ezgzip re pgx_async reddit_api_async)
+ (libraries async base64 core ezgzip pgx_async reddit_api_async)
  (preprocess
   (pps ppx_jane)))
 
