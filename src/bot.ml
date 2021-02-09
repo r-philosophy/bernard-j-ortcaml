@@ -77,15 +77,7 @@ module Per_subreddit = struct
             ~moderator
             ~time
         in
-        let%bind () =
-          match target with
-          | Link _ -> return ()
-          | Comment _ ->
-            let%bind (`Ok | `Already_recorded) =
-              Database.record_contents database ~target
-            in
-            return ()
-        in
+        let%bind (`Ok | `Already_recorded) = Database.record_contents database ~target in
         let%bind () =
           match Rule.will_remove rule with
           | true -> return ()
