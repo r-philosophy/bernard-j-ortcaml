@@ -135,7 +135,19 @@ module Automod_action_buffers = struct
   ;;
 end
 
-let lock id ~retry_manager = retry_or_fail retry_manager [%here] (Api.lock ~id ())
+let lock id ~retry_manager =
+  match%bind Retry_manager.call retry_manager (Api.lock ~id ()) with
+  | Ok () -> return ()
+  | Error (Http_error { response = { status = `Bad_request; _ }; body = _ }) ->
+    Log.Global.info_s [%message "Target was to old to lock."];
+    return ()
+  | Error error ->
+    raise_s
+      [%message
+        "Unexpected error while locking target."
+          ((id :> Thing.Fullname.t) : Thing.Fullname.t)
+          (error : Retry_manager.Non_transient_error.t)]
+;;
 
 let complete_ban_message message (target : Target.t) =
   let kind_string =
