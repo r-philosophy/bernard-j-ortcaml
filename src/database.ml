@@ -10,10 +10,10 @@ let target_fullname_params target =
     | `Link id -> 3, Thing.Link.Id.to_int63 id
     | `Comment id -> 1, Thing.Comment.Id.to_int63 id
   in
-  List.map [ kind_int; Int63.to_int_exn id_int ] ~f:Pgx_value.of_int
+  List.map [ kind_int; Int63.to_int_exn id_int ] ~f:Pgx.Value.of_int
 ;;
 
-let username_param username = Pgx_value.of_string (Username.to_string username)
+let username_param username = Pgx.Value.of_string (Username.to_string username)
 
 let get_or_create_user_id t ~username =
   let params = [ username_param username ] in
@@ -26,8 +26,8 @@ let get_or_create_user_id t ~username =
   let%bind rows =
     Pgx_async.execute ~params t "SELECT id FROM users WHERE username = $1"
   in
-  match List.map rows ~f:(List.map ~f:Pgx_value.to_int) with
-  | [ [ Some id ] ] -> return (Pgx_value.of_int id)
+  match List.map rows ~f:(List.map ~f:Pgx.Value.to_int) with
+  | [ [ Some id ] ] -> return (Pgx.Value.of_int id)
   | _ ->
     raise_s
       [%message
@@ -42,7 +42,7 @@ let already_acted t ~target ~moderator =
       "SELECT COUNT(1) FROM actions INNER JOIN users ON actions.moderator = users.id \
        WHERE target = ($1, $2)::thing_id AND users.username = $3"
   in
-  match List.map rows ~f:(List.map ~f:Pgx_value.to_int) with
+  match List.map rows ~f:(List.map ~f:Pgx.Value.to_int) with
   | [ [ Some 0 ] ] -> return false
   | [ [ Some 1 ] ] -> return true
   | _ ->
@@ -59,11 +59,11 @@ let record_contents t ~target =
       | Comment comment -> Thing.Comment.to_json comment
       | Link link -> Thing.Link.to_json link
     in
-    Json.value_to_string json |> Pgx_value.of_string
+    Json.value_to_string json |> Pgx.Value.of_string
   in
   let%bind author_id =
     match Action.Target.author target with
-    | None -> return Pgx_value.null
+    | None -> return Pgx.Value.null
     | Some username -> get_or_create_user_id t ~username
   in
   let%bind subreddit_id =
@@ -74,21 +74,21 @@ let record_contents t ~target =
     in
     let%bind rows =
       Pgx_async.execute
-        ~params:[ Pgx_value.of_string (Subreddit_name.to_string subreddit) ]
+        ~params:[ Pgx.Value.of_string (Subreddit_name.to_string subreddit) ]
         t
         "SELECT id FROM subreddits WHERE display_name = $1"
     in
     match rows with
     | [ [ id ] ] -> return id
     | _ ->
-      raise_s [%message "Unexpected subreddit_id rows" (rows : Pgx_value.t list list)]
+      raise_s [%message "Unexpected subreddit_id rows" (rows : Pgx.Value.t list list)]
   in
   let time =
     (match target with
     | Comment comment -> Thing.Comment.creation_time comment
     | Link link -> Thing.Link.creation_time link)
     |> Time_ns.to_string
-    |> Pgx_value.of_string
+    |> Pgx.Value.of_string
   in
   let params =
     List.concat
@@ -119,20 +119,20 @@ let record_contents t ~target =
 let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
   let%bind author_id =
     match author with
-    | None -> return Pgx_value.null
+    | None -> return Pgx.Value.null
     | Some username -> get_or_create_user_id t ~username
   in
   let%bind moderator_id = get_or_create_user_id t ~username:moderator in
   let target_fullname_params = target_fullname_params target in
   let subreddit_id =
-    Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx_value.of_int
+    Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx.Value.of_int
   in
-  let time = Time_ns.to_string time |> Pgx_value.of_string in
+  let time = Time_ns.to_string time |> Pgx.Value.of_string in
   let%bind () =
     let params =
       List.concat
         [ target_fullname_params
-        ; [ Pgx_value.of_string action_summary ]
+        ; [ Pgx.Value.of_string action_summary ]
         ; [ author_id ]
         ; [ moderator_id ]
         ; [ time ]
@@ -154,10 +154,10 @@ let update_subscriber_counts t ~subreddits =
         Thing.Subreddit.id subreddit
         |> Thing.Subreddit.Id.to_int63
         |> Int63.to_int_exn
-        |> Pgx_value.of_int
+        |> Pgx.Value.of_int
       in
       let display_name =
-        Thing.Subreddit.name subreddit |> Subreddit_name.to_string |> Pgx_value.of_string
+        Thing.Subreddit.name subreddit |> Subreddit_name.to_string |> Pgx.Value.of_string
       in
       let%bind () =
         Pgx_async.execute_unit
@@ -165,7 +165,7 @@ let update_subscriber_counts t ~subreddits =
           t
           "INSERT INTO subreddits (id, display_name) VALUES($1,$2) ON CONFLICT DO NOTHING"
       in
-      let subscribers = Thing.Subreddit.subscribers subreddit |> Pgx_value.of_int in
+      let subscribers = Thing.Subreddit.subscribers subreddit |> Pgx.Value.of_int in
       Pgx_async.execute_unit
         ~params:[ subscribers; subreddit_id ]
         t
@@ -175,7 +175,7 @@ let update_subscriber_counts t ~subreddits =
 let update_moderator_table t ~moderators ~subreddit =
   Pgx_async.with_transaction t (fun t ->
       let subreddit_id =
-        Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx_value.of_int
+        Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx.Value.of_int
       in
       let%bind () =
         Pgx_async.execute_unit
