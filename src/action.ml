@@ -445,3 +445,15 @@ let validate =
   | Notify { text } -> Validate.name "Notify" (validate_max_length "text" 10_000 text)
   | Add_usernote _ | Lock | Nuke | Remove | Watch_via_automod _ -> Validate.pass
 ;;
+
+let required_scopes t =
+  List.map
+    ~f:Scope.of_string
+    (match t with
+    | Add_usernote _ | Watch_via_automod _ -> [ "wikiedit"; "wikiread" ]
+    | Ban _ -> [ "modcontributors" ]
+    | Modmail _ -> [ "modmail" ]
+    | Lock | Remove -> [ "modposts" ]
+    | Nuke -> [ "modposts"; "read" ]
+    | Notify _ -> [ "modposts"; "submit" ])
+;;

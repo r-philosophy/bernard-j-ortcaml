@@ -255,8 +255,32 @@ let validate_command =
        return ())
 ;;
 
+let required_scopes_command =
+  Command.async
+    ~summary:"Print required OAuth2 scopes for given rules"
+    (let%map_open.Command subreddit_configs = per_subreddit_param in
+     fun () ->
+       let%bind subreddit_configs = Deferred.Or_error.ok_exn subreddit_configs in
+       let always_required =
+         Scope.Set.of_list (List.map ~f:Scope.of_string [ "modposts"; "read" ])
+       in
+       let for_rules =
+         Scope.Set.of_list
+           (let open List.Let_syntax in
+           let%bind rule = List.concat (Map.data subreddit_configs) in
+           let%bind action = rule.actions in
+           Action.required_scopes action)
+       in
+       let all = Set.union always_required for_rules in
+       printf "%s\n" (Scope.request_parameter all);
+       return ())
+;;
+
 let command =
   Command.group
     ~summary:"Bernard J. Ortcutt moderation bot"
-    [ "run", main_command; "validate", validate_command ]
+    [ "run", main_command
+    ; "validate", validate_command
+    ; "required-scopes", required_scopes_command
+    ]
 ;;

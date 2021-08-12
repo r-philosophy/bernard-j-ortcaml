@@ -104,3 +104,4 @@ val act
   -> unit Deferred.t
 
 val will_remove : t -> bool
+val required_scopes : t -> Scope.t list
