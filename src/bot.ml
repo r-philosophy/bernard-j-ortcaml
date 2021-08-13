@@ -176,11 +176,26 @@ let run_forever t =
   let run_until_stop span f =
     Deferred.create (fun finished -> Clock_ns.every' ~stop ~finished span f)
   in
-  Deferred.all_unit
-    [ run_until_stop (Time_ns.Span.of_string "5m") (fun () -> refresh_subreddit_tables t)
-    ; run_until_stop (Time_ns.Span.of_string "30s") (fun () ->
-          Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
-    ]
+  Deferred.repeat_until_finished () (fun () ->
+      match%bind
+        Monitor.try_with_or_error (fun () ->
+            Deferred.all_unit
+              [ run_until_stop (Time_ns.Span.of_string "5m") (fun () ->
+                    refresh_subreddit_tables t)
+              ; run_until_stop (Time_ns.Span.of_string "30s") (fun () ->
+                    Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
+              ])
+      with
+      | Ok () -> return (`Finished ())
+      | Error error ->
+        let retry_delay = Time_ns.Span.minute in
+        Log.Global.error_s
+          [%message
+            "Unhandled error. Repeating main bot loop after delay."
+              (retry_delay : Time_ns.Span.t)
+              (error : Error.t)];
+        let%bind () = Clock_ns.after retry_delay in
+        return (`Repeat ()))
 ;;
 
 let connection_param =
