@@ -54,7 +54,7 @@ type t =
   | Ban of
       { message : string (** Message displayed to the user *)
       ; reason : string (** Reason available to moderators *)
-      ; duration : Api.Parameters.Relationship_spec.Duration.t
+      ; duration : Endpoint.Parameters.Relationship_spec.Duration.t
       } (** Ban the target author. *)
   | Lock (** Lock the target. *)
   | Nuke (** Recursively remove the target and its replies. *)

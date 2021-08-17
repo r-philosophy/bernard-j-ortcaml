@@ -37,7 +37,7 @@ module Per_subreddit = struct
       [%here]
       ~retry_manager
       ~get_listing:(fun ?pagination ~limit connection ->
-        Api.modqueue ?pagination ~limit connection ~subreddit)
+        Endpoint.modqueue ?pagination ~limit connection ~subreddit)
   ;;
 
   let handle_target
@@ -85,7 +85,7 @@ module Per_subreddit = struct
             retry_or_fail
               retry_manager
               [%here]
-              (Api.approve ~id:(Action.Target.fullname target) ())
+              (Endpoint.approve ~id:(Action.Target.fullname target) ())
         in
         Deferred.List.iter
           rule.actions
@@ -121,7 +121,7 @@ let create ~subreddit_configs ~connection ~database =
     Map.to_alist subreddit_configs
     |> Deferred.List.map ~f:(fun (subreddit, rules) ->
            let%bind subreddit_id =
-             retry_or_fail retry_manager [%here] (Api.about_subreddit ~subreddit ())
+             retry_or_fail retry_manager [%here] (Endpoint.about_subreddit ~subreddit ())
              >>| Thing.Subreddit.id
            in
            return
@@ -143,7 +143,7 @@ let refresh_subreddit_tables { subreddits; retry_manager; database } =
     retry_or_fail
       retry_manager
       [%here]
-      (Api.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))) ())
+      (Endpoint.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))) ())
     >>| List.map ~f:(function
             | `Subreddit v -> v
             | (`Link _ | `Comment _) as thing ->
@@ -159,7 +159,7 @@ let refresh_subreddit_tables { subreddits; retry_manager; database } =
           [%here]
           ~retry_manager
           ~get_listing:(fun ?pagination ~limit connection ->
-            Api.moderators ?pagination ~limit connection ~subreddit:subreddit_name)
+            Endpoint.moderators ?pagination ~limit connection ~subreddit:subreddit_name)
         >>| List.map ~f:Relationship.Moderator.username
       in
       Database.update_moderator_table database ~moderators ~subreddit:subreddit_id)

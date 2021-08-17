@@ -10,7 +10,7 @@ let retry_or_fail retry_manager here endpoint =
       [%message
         "Reddit returned error"
           (here : Source_code_position.t)
-          ~request:(endpoint.request : Api.Request.t)
+          ~request:(endpoint.request : Endpoint.Request.t)
           (error : Retry_manager.Non_transient_error.t)]
 ;;
 

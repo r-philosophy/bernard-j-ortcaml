@@ -91,10 +91,14 @@ type t =
 
 let decompress_blob blob =
   match Base64.decode_exn blob |> Ezgzip.Z.decompress ~header:true with
-  | Ok s -> Json.of_string s
   | Error error ->
     let error = Format.asprintf "%a" Ezgzip.Z.pp_zlib_error error in
     raise_s [%message "Error decompressing blob" (error : string)]
+  | Ok s ->
+    (match Json.of_string s with
+    | Ok json -> json
+    | Error error ->
+      raise_s [%message "Error converting blob to string" (error : Error.t)])
 ;;
 
 let of_json json =

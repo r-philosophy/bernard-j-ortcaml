@@ -5,8 +5,9 @@ module Usernote_page = Bernard_j_ortcutt.Usernote_page
 let%expect_test "Roundtrip example from docs" =
   (* This example is from https://github.com/toolbox-team/reddit-moderator-toolbox-legacy/wiki/JSON:-usernotes. *)
   let sample =
-    Json.of_string
-      {|
+    Or_error.ok_exn
+      (Json.of_string
+         {|
 {
     "ver":6,
     "constants": {
@@ -19,7 +20,7 @@ let%expect_test "Roundtrip example from docs" =
     },
     "blob":"eJyrVkouSk0tTs5QsqpWyitWsooGUkpWSiEZmcUKQJSokJdfkqqko1SiZGVoYmxpZGhuZmmqo5SrZGWgo5QDVJmjY2SQZp6ZA1RTDhSsja2tBQA4HBgB"
 }
-        |}
+        |})
   in
   let page = Usernote_page.of_json sample in
   print_s [%sexp (page : Usernote_page.t)];
@@ -48,10 +49,11 @@ let%expect_test "Roundtrip example from docs" =
 let%expect_test "Roundtrip example from testing subreddit" =
   (* This example is from usernotes constructed via the toolbox extension. *)
   let sample =
-    Json.of_string
-      {|
+    Or_error.ok_exn
+      (Json.of_string
+         {|
 {"ver":6,"constants":{"users":["L72_Elite_Kraken"],"warnings":["gooduser"]},"blob":"eJyrVvIxN4p3zcksSY33LkrMTs1TsqpWyitWsooGUkpWSiEZmcUKQJSoUFqcWpSXX5KqpKNUomRlaGZgZGhpZmpuoaOUq2RloKOUA1Sdo5OZk2lSlgxUUw4UrI2trQUA1w4dGg=="}
-|}
+|})
   in
   let page = Usernote_page.of_json sample in
   print_s [%sexp (page : Usernote_page.t)];
@@ -80,10 +82,11 @@ let%expect_test "Roundtrip example from testing subreddit" =
 let%expect_test "Example adding a usernote with new kind" =
   (* This example shows a modification of the usernote page, including a new note kind. *)
   let sample =
-    Json.of_string
-      {|
+    Or_error.ok_exn
+      (Json.of_string
+         {|
 {"ver":6,"constants":{"users":["L72_Elite_Kraken"],"warnings":["gooduser"]},"blob":"eJyrVvIxN4p3zcksSY33LkrMTs1TsqpWyitWsooGUkpWSiEZmcUKQJSoUFqcWpSXX5KqpKNUomRlaGZgZGhpZmpuoaOUq2RloKOUA1Sdo5OZk2lSlgxUUw4UrI2trQUA1w4dGg=="}
-|}
+|})
   in
   let page = Usernote_page.of_json sample in
   Usernote_page.add_note
@@ -102,7 +105,7 @@ let%expect_test "Example adding a usernote with new kind" =
   [%expect
     {|
     {"ver":6,"constants":{"users":["L72_Elite_Kraken","spez"],"warnings":["gooduser","a_note"]},"blob":"eJyrVvIxN4p3zcksSY33LkrMTs1TsqpWyitWsooGUkpWSiEZmcUKQJSokJdarlBanFqUl1+SqqSjlAOUzNHJzMk0KUsGckuUrAx0lHKVrAx1lMqBZK0Oun4kvUDFhmYGRoaWZqbmFmBdBhgGAg0xqI2trQUAukkvpw=="} |}];
-  let page = Usernote_page.of_json (Json.of_string s) in
+  let page = Json.of_string s |> Or_error.ok_exn |> Usernote_page.of_json in
   print_s [%sexp (page : Usernote_page.t)];
   [%expect
     {|

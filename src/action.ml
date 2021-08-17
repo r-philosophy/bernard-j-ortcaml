@@ -66,7 +66,9 @@ module Target = struct
 end
 
 let update_wiki_page ?reason page ~retry_manager ~f =
-  let%bind wiki_page = retry_or_fail retry_manager [%here] (Api.wiki_page ~page ()) in
+  let%bind wiki_page =
+    retry_or_fail retry_manager [%here] (Endpoint.wiki_page ~page ())
+  in
   let content = Wiki_page.content wiki_page `markdown in
   let revision_id = Wiki_page.revision_id wiki_page in
   let rec loop content ~previous =
@@ -75,7 +77,7 @@ let update_wiki_page ?reason page ~retry_manager ~f =
       retry_or_fail
         retry_manager
         [%here]
-        (Api.edit_wiki_page ~previous ~content:new_content ?reason ~page ())
+        (Endpoint.edit_wiki_page ~previous ~content:new_content ?reason ~page ())
     with
     | Ok () -> return ()
     | Error conflict ->
@@ -136,9 +138,11 @@ module Automod_action_buffers = struct
 end
 
 let lock id ~retry_manager =
-  match%bind Retry_manager.call retry_manager (Api.lock ~id ()) with
+  match%bind Retry_manager.call retry_manager (Endpoint.lock ~id ()) with
   | Ok () -> return ()
-  | Error (Http_error { response = { status = `Bad_request; _ }; body = _ }) ->
+  | Error
+      (Endpoint_error (Http_error { response = { status = `Bad_request; _ }; body = _ }))
+    ->
     Log.Global.info_s [%message "Target was to old to lock."];
     return ()
   | Error error ->
@@ -169,7 +173,7 @@ let remove target ~retry_manager =
   retry_or_fail
     retry_manager
     [%here]
-    (Api.remove ~id:(Target.fullname target) ~spam:false ())
+    (Endpoint.remove ~id:(Target.fullname target) ~spam:false ())
 ;;
 
 let ban target ~retry_manager ~subreddit ~duration ~message ~reason =
@@ -185,7 +189,7 @@ let ban target ~retry_manager ~subreddit ~duration ~message ~reason =
     retry_or_fail
       retry_manager
       [%here]
-      (Api.add_relationship
+      (Endpoint.add_relationship
          ~relationship:Banned
          ~username:author
          ~subreddit
@@ -207,11 +211,11 @@ let nuke (target : Target.t) ~retry_manager =
     | Link _ -> None
   in
   let%bind comment_response =
-    retry_or_fail retry_manager [%here] (Api.comments ?comment () ~link)
+    retry_or_fail retry_manager [%here] (Endpoint.comments ?comment () ~link)
   in
   Iter_comments.iter_comments retry_manager ~comment_response ~f:(fun comment ->
       let id = `Comment (Thing.Comment.id comment) in
-      retry_or_fail retry_manager [%here] (Api.remove ~id ~spam:false ()))
+      retry_or_fail retry_manager [%here] (Endpoint.remove ~id ~spam:false ()))
 ;;
 
 let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
@@ -227,7 +231,7 @@ let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
       retry_or_fail
         retry_manager
         [%here]
-        (Api.create_modmail_conversation
+        (Endpoint.create_modmail_conversation
            ~subject
            ~body
            ~to_:(User author)
@@ -250,7 +254,10 @@ let notify (target : Target.t) ~retry_manager ~text =
   let parent = Target.fullname target in
   (* TODO: Maybe it's too old *)
   let%bind notification =
-    retry_or_fail retry_manager [%here] (Api.add_comment ~parent ~text:comment_text ())
+    retry_or_fail
+      retry_manager
+      [%here]
+      (Endpoint.add_comment ~parent ~text:comment_text ())
   in
   let notification_id = `Comment (Thing.Comment.id notification) in
   let sticky =
@@ -262,7 +269,7 @@ let notify (target : Target.t) ~retry_manager ~text =
     retry_or_fail
       retry_manager
       [%here]
-      (Api.distinguish ?sticky ~id:notification_id ~how:Mod ())
+      (Endpoint.distinguish ?sticky ~id:notification_id ~how:Mod ())
   and () = lock notification_id ~retry_manager in
   return ()
 ;;
@@ -314,7 +321,7 @@ type t =
   | Ban of
       { message : string
       ; reason : string
-      ; duration : Api.Parameters.Relationship_spec.Duration.t
+      ; duration : Endpoint.Parameters.Relationship_spec.Duration.t
       }
   | Lock
   | Nuke
@@ -342,10 +349,16 @@ module Usernote_action_buffers = struct
     | notes ->
       Queue.clear t;
       let transform_page page =
-        let page = Json.of_string page |> Usernote_page.of_json in
-        List.iter notes ~f:(fun (username, spec) ->
-            Usernote_page.add_note page ~username ~spec);
-        Usernote_page.to_json page |> Json.value_to_string
+        match Json.of_string page with
+        | Error error ->
+          raise_s
+            [%message
+              "Usernote page contained invalid json" (page : string) (error : Error.t)]
+        | Ok json ->
+          let page = Usernote_page.of_json json in
+          List.iter notes ~f:(fun (username, spec) ->
+              Usernote_page.add_note page ~username ~spec);
+          Usernote_page.to_json page |> Json.value_to_string
       in
       let page : Wiki_page.Id.t = { subreddit = Some subreddit; page = "usernotes" } in
       update_wiki_page page ~retry_manager ~f:transform_page
