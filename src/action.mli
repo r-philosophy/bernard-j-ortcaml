@@ -52,7 +52,7 @@ type t =
           Toolbox usernote} to the target author with the corresponding level
           and text. *)
   | Ban of
-      { message : string (** Message displayed to the user *)
+      { message : string option (** Message displayed to the user *)
       ; reason : string (** Reason available to moderators *)
       ; duration : Endpoint.Parameters.Relationship_spec.Duration.t
       } (** Ban the target author. *)

@@ -185,7 +185,9 @@ let ban target ~retry_manager ~subreddit ~duration ~message ~reason =
           ~target:(Target.fullname target : Thing.Fullname.t)];
     return ()
   | Some author ->
-    let ban_message = complete_ban_message message target in
+    let ban_message =
+      Option.map message ~f:(fun message -> complete_ban_message message target)
+    in
     retry_or_fail
       retry_manager
       [%here]
@@ -194,7 +196,7 @@ let ban target ~retry_manager ~subreddit ~duration ~message ~reason =
          ~username:author
          ~subreddit
          ~duration
-         ~ban_message
+         ?ban_message
          ~ban_reason:reason
          ())
 ;;
@@ -319,7 +321,7 @@ type t =
       ; text : string
       }
   | Ban of
-      { message : string
+      { message : string option
       ; reason : string
       ; duration : Endpoint.Parameters.Relationship_spec.Duration.t
       }
@@ -445,7 +447,10 @@ let validate =
     Validate.name
       "Ban"
       (Validate.of_list
-         [ validate_max_length "message" 1000 message
+         [ Option.value_map
+             message
+             ~f:(validate_max_length "message" 1000)
+             ~default:Validate.pass
          ; validate_max_length "reason" 100 reason
          ; Validate.name
              "duration"
