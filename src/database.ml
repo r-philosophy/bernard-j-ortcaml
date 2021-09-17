@@ -43,8 +43,7 @@ let already_acted t ~target ~moderator =
        WHERE target = ($1, $2)::thing_id AND users.username = $3"
   in
   match List.map rows ~f:(List.map ~f:Pgx.Value.to_int) with
-  | [ [ Some 0 ] ] -> return false
-  | [ [ Some 1 ] ] -> return true
+  | [ [ Some n ] ] -> return (n > 0)
   | _ ->
     raise_s
       [%message
