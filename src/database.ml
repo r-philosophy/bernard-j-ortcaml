@@ -2,191 +2,249 @@ open! Core
 open! Async
 open! Import
 
-type t = Pgx_async.t
+module Types = struct
+  let custom_type base ~encode ~decode =
+    let lift f v = f v |> Result.map_error ~f:Error.to_string_hum in
+    Caqti_type.custom base ~encode:(lift encode) ~decode:(lift decode)
+  ;;
 
-let target_fullname_params target =
-  let kind_int, id_int =
-    match Action.Target.fullname target with
-    | `Link id -> 3, Thing.Link.Id.to_int63 id
-    | `Comment id -> 1, Thing.Comment.Id.to_int63 id
-  in
-  List.map [ kind_int; Int63.to_int_exn id_int ] ~f:Pgx.Value.of_int
+  let try_with_or_error f v = Or_error.try_with (fun () -> f v)
+
+  let fullname =
+    custom_type
+      Caqti_type.(tup2 int int)
+      ~encode:(function
+        | `Comment c -> Ok (1, Thing.Comment.Id.to_int63 c |> Int63.to_int_exn)
+        | `Link l -> Ok (3, Thing.Link.Id.to_int63 l |> Int63.to_int_exn))
+      ~decode:(function
+        | 1, id -> Ok (`Comment (Int63.of_int id |> Thing.Comment.Id.of_int63))
+        | 3, id -> Ok (`Link (Int63.of_int id |> Thing.Link.Id.of_int63))
+        | kind, _ -> Or_error.error_s [%message "Unrecognized thing kind" (kind : int)])
+  ;;
+
+  let username =
+    custom_type
+      Caqti_type.string
+      ~encode:(try_with_or_error Username.to_string)
+      ~decode:(try_with_or_error Username.of_string)
+  ;;
+
+  let subreddit_name =
+    custom_type
+      Caqti_type.string
+      ~encode:(try_with_or_error Subreddit_name.to_string)
+      ~decode:(try_with_or_error Subreddit_name.of_string)
+  ;;
+
+  let subreddit_id =
+    custom_type
+      Caqti_type.int
+      ~encode:
+        (try_with_or_error (fun id -> Thing.Subreddit.Id.to_int63 id |> Int63.to_int_exn))
+      ~decode:
+        (try_with_or_error (fun int -> Int63.of_int int |> Thing.Subreddit.Id.of_int63))
+  ;;
+
+  let thing =
+    custom_type
+      Caqti_type.string
+      ~encode:(fun (thing : Action.Target.t) ->
+        let json =
+          match thing with
+          | Comment comment -> Thing.Comment.to_json comment
+          | Link link -> Thing.Link.to_json link
+        in
+        Ok (Json.value_to_string json))
+      ~decode:(fun s ->
+        let open Or_error.Let_syntax in
+        let%bind json = Json.of_string s in
+        match Thing.Poly.of_json json with
+        | `Comment comment -> Ok (Action.Target.Comment comment)
+        | `Link link -> Ok (Link link)
+        | _ -> Or_error.error_s [%message "Unexpected thing JSON" (json : Json.t)])
+  ;;
+
+  let time =
+    custom_type
+      Caqti_type.ptime
+      ~encode:(fun time_ns ->
+        match
+          let%bind.Option ptime_span =
+            Time_ns.to_time_float_round_nearest time_ns
+            |> Time.to_span_since_epoch
+            |> Time.Span.to_sec
+            |> Ptime.Span.of_float_s
+          in
+          Ptime.of_span ptime_span
+        with
+        | Some v -> Ok v
+        | None -> Or_error.error_s [%message "Unrepresentable time" (time_ns : Time_ns.t)])
+      ~decode:(fun ptime ->
+        Ptime.to_span ptime
+        |> Ptime.Span.to_float_s
+        |> Time.Span.of_sec
+        |> Time_ns.Span.of_span_float_round_nearest
+        |> Time_ns.of_span_since_epoch
+        |> Ok)
+  ;;
+end
+
+module Build_request = struct
+  include Caqti_type.Std
+  include Caqti_request.Infix
+  include Types
+end
+
+type t = (Caqti_async.connection, Caqti_error.t) Caqti_async.Pool.t
+
+let with_t (t : t) ~f =
+  match%bind Caqti_async.Pool.use f t with
+  | Ok v -> return v
+  | Error error -> raise (Caqti_error.Exn (error :> Caqti_error.t))
 ;;
 
-let username_param username = Pgx.Value.of_string (Username.to_string username)
+let target_fullname (target : Action.Target.t) =
+  match target with
+  | Comment comment -> `Comment (Thing.Comment.id comment)
+  | Link link -> `Link (Thing.Link.id link)
+;;
 
-let get_or_create_user_id t ~username =
-  let params = [ username_param username ] in
+let get_or_create_user_id (module Connection : Caqti_async.CONNECTION) ~username =
+  let open Deferred.Result.Let_syntax in
   let%bind () =
-    Pgx_async.execute_unit
-      ~params
-      t
-      "INSERT INTO users (username) VALUES($1) ON CONFLICT DO NOTHING"
+    let request =
+      Build_request.(username ->. unit)
+        "INSERT INTO users (username) VALUES($1) ON CONFLICT DO NOTHING"
+    in
+    Connection.exec request username
   in
-  let%bind rows =
-    Pgx_async.execute ~params t "SELECT id FROM users WHERE username = $1"
+  let request =
+    Build_request.(username ->! int) "SELECT id FROM users WHERE username = $1"
   in
-  match List.map rows ~f:(List.map ~f:Pgx.Value.to_int) with
-  | [ [ Some id ] ] -> return (Pgx.Value.of_int id)
-  | _ ->
-    raise_s
-      [%message
-        "Unexpected database response" (rows : Pgx.row list) (username : Username.t)]
+  Connection.find request username
 ;;
 
 let already_acted t ~target ~moderator =
-  let%bind rows =
-    Pgx_async.execute
-      ~params:(target_fullname_params target @ [ username_param moderator ])
-      t
-      "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id AND moderator = \
-       $3"
-  in
-  match List.map rows ~f:(List.map ~f:Pgx.Value.to_int) with
-  | [ [ Some n ] ] -> return (n > 0)
-  | _ ->
-    raise_s
-      [%message
-        "Unexpected database response" (rows : Pgx.row list) (target : Action.Target.t)]
+  with_t t ~f:(fun (module Connection) ->
+      let open Deferred.Result.Let_syntax in
+      let request =
+        Build_request.(tup2 fullname username ->! int)
+          "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id AND \
+           moderator = $3"
+      in
+      let%bind action_count =
+        Connection.find request (target_fullname target, moderator)
+      in
+      return (action_count > 0))
 ;;
 
 let record_contents t ~target =
-  let target_fullname_params = target_fullname_params target in
-  let json =
-    let json =
-      match target with
-      | Comment comment -> Thing.Comment.to_json comment
-      | Link link -> Thing.Link.to_json link
-    in
-    Json.value_to_string json |> Pgx.Value.of_string
-  in
-  let%bind author_id =
-    match Action.Target.author target with
-    | None -> return Pgx.Value.null
-    | Some username -> get_or_create_user_id t ~username
-  in
-  let%bind subreddit_id =
-    let subreddit =
-      match target with
-      | Comment comment -> Thing.Comment.subreddit comment
-      | Link link -> Thing.Link.subreddit link
-    in
-    let%bind rows =
-      Pgx_async.execute
-        ~params:[ Pgx.Value.of_string (Subreddit_name.to_string subreddit) ]
-        t
-        "SELECT id FROM subreddits WHERE display_name = $1"
-    in
-    match rows with
-    | [ [ id ] ] -> return id
-    | _ ->
-      raise_s [%message "Unexpected subreddit_id rows" (rows : Pgx.Value.t list list)]
-  in
-  let time =
-    (match target with
-    | Comment comment -> Thing.Comment.creation_time comment
-    | Link link -> Thing.Link.creation_time link)
-    |> Time_ns.to_string
-    |> Pgx.Value.of_string
-  in
-  let params =
-    List.concat
-      [ target_fullname_params; [ author_id ]; [ subreddit_id ]; [ time ]; [ json ] ]
-  in
-  match%bind
-    Monitor.try_with (fun () ->
-        Pgx_async.execute_unit
-          ~params
-          t
+  with_t t ~f:(fun ((module Connection) as connection) ->
+      let open Deferred.Result.Let_syntax in
+      let%bind author_id =
+        match Action.Target.author target with
+        | None -> return None
+        | Some username ->
+          let%bind id = get_or_create_user_id connection ~username in
+          return (Some id)
+      in
+      let%bind subreddit_id =
+        let subreddit =
+          match target with
+          | Comment comment -> Thing.Comment.subreddit comment
+          | Link link -> Thing.Link.subreddit link
+        in
+        let request =
+          Build_request.(subreddit_name ->! subreddit_id)
+            "SELECT id FROM subreddits WHERE display_name = $1"
+        in
+        Connection.find request subreddit
+      in
+      let time =
+        match target with
+        | Comment comment -> Thing.Comment.creation_time comment
+        | Link link -> Thing.Link.creation_time link
+      in
+      let request =
+        Build_request.(tup2 (tup4 fullname (option int) subreddit_id time) thing ->. unit)
           "INSERT INTO contents (id, author, subreddit, time, json) \
-           VALUES(($1,$2),$3,$4,$5,$6)")
-  with
-  | Ok () -> return `Ok
-  | Error exn ->
-    let exn = Monitor.extract_exn exn in
-    (match exn with
-    | Pgx.PostgreSQL_Error ((_ : string), { code = "23505"; _ }) ->
-      return `Already_recorded
-    | _ ->
-      raise_s
-        [%message
-          "Unexpected SQL error inserting contents"
-            (exn : Exn.t)
-            (target : Action.Target.t)])
+           VALUES(($1,$2),$3,$4,$5,$6)"
+      in
+      match%bind.Deferred
+        Connection.exec
+          request
+          ((target_fullname target, author_id, subreddit_id, time), target)
+      with
+      | Ok () -> return `Ok
+      | Error error ->
+        let raise_error () = raise (Caqti_error.Exn error) in
+        (match error with
+        | (`Request_failed _ | `Response_failed _) as error ->
+          (match Caqti_error.cause error with
+          | `Unique_violation -> return `Already_recorded
+          | _ -> raise_error ())
+        | _ -> raise_error ()))
 ;;
 
 let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
-  let%bind author_id =
-    match author with
-    | None -> return Pgx.Value.null
-    | Some username -> get_or_create_user_id t ~username
-  in
-  let%bind moderator_id = get_or_create_user_id t ~username:moderator in
-  let target_fullname_params = target_fullname_params target in
-  let subreddit_id =
-    Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx.Value.of_int
-  in
-  let time = Time_ns.to_string time |> Pgx.Value.of_string in
-  let%bind () =
-    let params =
-      List.concat
-        [ target_fullname_params
-        ; [ Pgx.Value.of_string action_summary ]
-        ; [ author_id ]
-        ; [ moderator_id ]
-        ; [ time ]
-        ; [ subreddit_id ]
-        ]
-    in
-    Pgx_async.execute_unit
-      ~params
-      t
-      "INSERT INTO actions (target, action_summary, author, moderator, time, subreddit) \
-       VALUES(($1,$2),$3,$4,$5,$6,$7)"
-  in
-  return ()
+  with_t t ~f:(fun ((module Connection) as connection) ->
+      let open Deferred.Result.Let_syntax in
+      let%bind author_id =
+        match author with
+        | None -> return None
+        | Some username ->
+          let%bind id = get_or_create_user_id connection ~username in
+          return (Some id)
+      in
+      let%bind moderator_id = get_or_create_user_id connection ~username:moderator in
+      let target_fullname = target_fullname target in
+      let request =
+        Build_request.(
+          tup2 (tup4 fullname string (option int) int) (tup2 time subreddit_id) ->. unit)
+          "INSERT INTO actions (target, action_summary, author, moderator, time, \
+           subreddit) VALUES(($1,$2),$3,$4,$5,$6,$7)"
+      in
+      Connection.exec
+        request
+        ((target_fullname, action_summary, author_id, moderator_id), (time, subreddit)))
 ;;
 
 let update_subscriber_counts t ~subreddits =
-  Deferred.List.iter subreddits ~f:(fun subreddit ->
-      let subreddit_id =
-        Thing.Subreddit.id subreddit
-        |> Thing.Subreddit.Id.to_int63
-        |> Int63.to_int_exn
-        |> Pgx.Value.of_int
-      in
-      let display_name =
-        Thing.Subreddit.name subreddit |> Subreddit_name.to_string |> Pgx.Value.of_string
-      in
-      let%bind () =
-        Pgx_async.execute_unit
-          ~params:[ subreddit_id; display_name ]
-          t
-          "INSERT INTO subreddits (id, display_name) VALUES($1,$2) ON CONFLICT DO NOTHING"
-      in
-      let subscribers = Thing.Subreddit.subscribers subreddit |> Pgx.Value.of_int in
-      Pgx_async.execute_unit
-        ~params:[ subscribers; subreddit_id ]
-        t
-        "UPDATE subreddits SET subscribers = $1 WHERE id = $2")
+  with_t t ~f:(fun (module Connection) ->
+      Deferred.List.map subreddits ~f:(fun subreddit ->
+          let open Deferred.Result.Let_syntax in
+          let subreddit_id = Thing.Subreddit.id subreddit in
+          let display_name = Thing.Subreddit.name subreddit in
+          let request =
+            Build_request.(tup2 subreddit_id subreddit_name ->. unit)
+              "INSERT INTO subreddits (id, display_name) VALUES($1,$2) ON CONFLICT DO \
+               NOTHING"
+          in
+          let%bind () = Connection.exec request (subreddit_id, display_name) in
+          let subscribers = Thing.Subreddit.subscribers subreddit in
+          let request =
+            Build_request.(tup2 int subreddit_id ->. unit)
+              "UPDATE subreddits SET subscribers = $1 WHERE id = $2"
+          in
+          Connection.exec request (subscribers, subreddit_id))
+      >>| Result.all_unit)
 ;;
 
 let update_moderator_table t ~moderators ~subreddit =
-  Pgx_async.with_transaction t (fun t ->
-      let subreddit_id =
-        Thing.Subreddit.Id.to_int63 subreddit |> Int63.to_int_exn |> Pgx.Value.of_int
-      in
-      let%bind () =
-        Pgx_async.execute_unit
-          ~params:[ subreddit_id ]
-          t
+  with_t t ~f:(fun ((module Connection) as connection) ->
+      let request =
+        Build_request.(subreddit_id ->. unit)
           "DELETE FROM subreddit_moderator WHERE subreddit_id = $1"
       in
-      Deferred.List.iter moderators ~f:(fun moderator ->
-          let%bind user_id = get_or_create_user_id t ~username:moderator in
-          Pgx_async.execute_unit
-            ~params:[ subreddit_id; user_id ]
-            t
-            "INSERT INTO subreddit_moderator (subreddit_id, moderator_id) VALUES($1,$2) \
-             ON CONFLICT DO NOTHING"))
+      let%bind.Deferred.Result () = Connection.exec request subreddit in
+      Deferred.List.map moderators ~f:(fun moderator ->
+          let open Deferred.Result.Let_syntax in
+          let%bind user_id = get_or_create_user_id connection ~username:moderator in
+          let request =
+            Build_request.(tup2 subreddit_id int ->. unit)
+              "INSERT INTO subreddit_moderator (subreddit_id, moderator_id) \
+               VALUES($1,$2) ON CONFLICT DO NOTHING"
+          in
+          Connection.exec request (subreddit, user_id))
+      >>| Result.all_unit)
 ;;

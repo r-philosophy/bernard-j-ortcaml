@@ -2,9 +2,8 @@ open! Core
 open! Async
 open! Import
 
-type t = Pgx_async.t
+type t = (Caqti_async.connection, Caqti_error.t) Caqti_async.Pool.t
 
-val target_fullname_params : Action.Target.t -> Pgx.Value.t list
 val already_acted : t -> target:Action.Target.t -> moderator:Username.t -> bool Deferred.t
 
 val record_contents
@@ -29,3 +28,14 @@ val update_moderator_table
   -> moderators:Username.t list
   -> subreddit:Thing.Subreddit.Id.t
   -> unit Deferred.t
+
+module Types : sig
+  val fullname
+    : [ `Comment of Thing.Comment.Id.t | `Link of Thing.Link.Id.t ] Caqti_type.t
+
+  val subreddit_name : Subreddit_name.t Caqti_type.t
+  val subreddit_id : Thing.Subreddit.Id.t Caqti_type.t
+  val thing : Action.Target.t Caqti_type.t
+  val time : Time_ns.t Caqti_type.t
+  val username : Username.t Caqti_type.t
+end

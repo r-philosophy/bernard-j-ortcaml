@@ -5,9 +5,14 @@ module Database = Bernard_j_ortcutt.Database
 
 let database_param =
   let%map_open.Command database =
-    flag "-database" (required string) ~doc:"STRING postgres database"
+    flag
+      "-database"
+      (required (Arg_type.map string ~f:Uri.of_string))
+      ~doc:"STRING postgres database"
   in
-  Pgx_async.connect ~database ()
+  match Caqti_async.connect_pool database with
+  | Ok v -> v
+  | Error error -> raise (Caqti_error.Exn error)
 ;;
 
 let test_suite database link_file subreddit_file =
@@ -68,9 +73,7 @@ let command =
          (required Filename_unix.arg_type)
          ~doc:"FILENAME Subreddit JSON file"
      in
-     fun () ->
-       let%bind database = database in
-       test_suite database link_file subreddit_file)
+     fun () -> test_suite database link_file subreddit_file)
 ;;
 
 let () = Command_unix.run command

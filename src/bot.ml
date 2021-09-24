@@ -257,9 +257,14 @@ let per_subreddit_param =
 
 let database_param =
   let%map_open.Command database =
-    flag "-database" (required string) ~doc:"STRING postgres database"
+    flag
+      "-database"
+      (required (Arg_type.map string ~f:Uri.of_string))
+      ~doc:"STRING postgres database"
   in
-  Pgx_async.connect ~database ()
+  match Caqti_async.connect_pool database with
+  | Ok v -> v
+  | Error error -> raise (Caqti_error.Exn error)
 ;;
 
 let param =
@@ -267,8 +272,7 @@ let param =
   and database = database_param
   and subreddit_configs = per_subreddit_param in
   fun () ->
-    let%bind.Deferred.Or_error subreddit_configs = subreddit_configs
-    and database = Deferred.ok database in
+    let%bind.Deferred.Or_error subreddit_configs = subreddit_configs in
     let%bind t = create ~connection ~subreddit_configs ~database in
     let%bind () = run_forever t in
     return (Ok ())
