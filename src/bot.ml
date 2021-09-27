@@ -50,13 +50,13 @@ module Per_subreddit = struct
           |> Option.map ~f:(fun ({ moderator; _ } : Moderator_report.t) ->
                  rule, moderator))
     with
-    | None -> return ()
+    | None -> return `Did_not_act
     | Some (_rule, None) ->
       raise_s
         [%message "A moderator deleted their account. Weird!" (target : Action.Target.t)]
     | Some (rule, Some moderator) ->
       (match%bind Database.already_acted database ~target ~moderator with
-      | true -> return ()
+      | true -> return `Did_not_act
       | false ->
         Log.Global.info_s
           [%sexp
@@ -87,25 +87,41 @@ module Per_subreddit = struct
               [%here]
               (Endpoint.approve ~id:(Action.Target.fullname target) ())
         in
-        Deferred.List.iter
-          rule.actions
-          ~f:
-            (Action.act
-               ~target
-               ~retry_manager
-               ~subreddit
-               ~moderator
-               ~time
-               ~action_buffers))
+        let%bind () =
+          Deferred.List.iter
+            rule.actions
+            ~f:
+              (Action.act
+                 ~target
+                 ~retry_manager
+                 ~subreddit
+                 ~moderator
+                 ~time
+                 ~action_buffers)
+        in
+        return `Acted)
   ;;
 
   let run_once ({ action_buffers; subreddit; retry_manager; _ } as t) =
+    let%bind all_targets = reports t >>| List.map ~f:target_of_thing in
+    let targets_acted_on = Thing.Fullname.Hash_set.create () in
     let%bind () =
-      reports t
-      >>| List.map ~f:target_of_thing
-      >>= Deferred.List.iter ~f:(fun target -> handle_target t ~target)
+      Deferred.List.iter all_targets ~f:(fun target ->
+          match%bind handle_target t ~target with
+          | `Did_not_act -> return ()
+          | `Acted ->
+            Hash_set.add targets_acted_on (Action.Target.fullname target);
+            return ())
     in
-    Action.Action_buffers.commit_all action_buffers ~retry_manager ~subreddit
+    let remaining_reports =
+      List.filter all_targets ~f:(fun target ->
+          not (Hash_set.mem targets_acted_on (Action.Target.fullname target)))
+    in
+    Action.Action_buffers.commit_all
+      action_buffers
+      ~retry_manager
+      ~subreddit
+      ~remaining_reports
   ;;
 end
 

@@ -325,6 +325,7 @@ type t =
       ; reason : string
       ; duration : Endpoint.Parameters.Relationship_spec.Duration.t
       }
+  | Cleanup_thread
   | Lock
   | Nuke
   | Modmail of
@@ -367,22 +368,55 @@ module Usernote_action_buffers = struct
   ;;
 end
 
+module Thread_cleanup_action_buffers = struct
+  type t = Thing.Link.Id.Hash_set.t [@@deriving sexp_of]
+
+  let create () = Thing.Link.Id.Hash_set.create ()
+  let add t link = Hash_set.add t link
+
+  let commit t ~retry_manager ~subreddit:_ ~(remaining_reports : Target.t list) =
+    let%bind () =
+      Deferred.List.iter remaining_reports ~f:(fun target ->
+          match target with
+          | Link _ -> return ()
+          | Comment comment ->
+            (match Hash_set.mem t (Thing.Comment.link comment) with
+            | false -> return ()
+            | true -> remove target ~retry_manager))
+    in
+    Hash_set.clear t;
+    return ()
+  ;;
+end
+
 module Action_buffers = struct
   type t =
     { automod : Automod_action_buffers.t
+    ; thread_cleanup : Thread_cleanup_action_buffers.t
     ; usernote : Usernote_action_buffers.t
     }
   [@@deriving sexp_of, fields]
 
   let create () =
     { automod = Automod_action_buffers.create ()
+    ; thread_cleanup = Thread_cleanup_action_buffers.create ()
     ; usernote = Usernote_action_buffers.create ()
     }
   ;;
 
-  let commit_all { automod; usernote } ~retry_manager ~subreddit =
+  let commit_all
+      { automod; thread_cleanup; usernote }
+      ~retry_manager
+      ~subreddit
+      ~remaining_reports
+    =
     Deferred.all_unit
       [ Automod_action_buffers.commit_all automod ~retry_manager ~subreddit
+      ; Thread_cleanup_action_buffers.commit
+          thread_cleanup
+          ~retry_manager
+          ~subreddit
+          ~remaining_reports
       ; Usernote_action_buffers.commit usernote ~retry_manager ~subreddit
       ]
   ;;
@@ -417,6 +451,12 @@ let act
       return ())
   | Ban { message; reason; duration } ->
     ban target ~retry_manager ~subreddit ~message ~reason ~duration
+  | Cleanup_thread ->
+    (match target with
+    | Comment _ -> ()
+    | Link link ->
+      Thread_cleanup_action_buffers.add action_buffers.thread_cleanup (Thing.Link.id link));
+    return ()
   | Lock -> lock (Target.fullname target) ~retry_manager
   | Nuke -> nuke target ~retry_manager
   | Modmail { subject; body } -> modmail target ~retry_manager ~subject ~body ~subreddit
@@ -431,7 +471,13 @@ let act
 let will_remove t =
   match t with
   | Remove | Nuke -> true
-  | Add_usernote _ | Ban _ | Lock | Modmail _ | Notify _ | Watch_via_automod _ -> false
+  | Add_usernote _
+  | Ban _
+  | Cleanup_thread
+  | Lock
+  | Modmail _
+  | Notify _
+  | Watch_via_automod _ -> false
 ;;
 
 let validate =
@@ -461,7 +507,8 @@ let validate =
   | Modmail { subject; body = _ } ->
     Validate.name "Modmail" (validate_max_length "subject" 100 subject)
   | Notify { text } -> Validate.name "Notify" (validate_max_length "text" 10_000 text)
-  | Add_usernote _ | Lock | Nuke | Remove | Watch_via_automod _ -> Validate.pass
+  | Add_usernote _ | Cleanup_thread | Lock | Nuke | Remove | Watch_via_automod _ ->
+    Validate.pass
 ;;
 
 let required_scopes t =
@@ -471,7 +518,7 @@ let required_scopes t =
     | Add_usernote _ | Watch_via_automod _ -> [ "wikiedit"; "wikiread" ]
     | Ban _ -> [ "modcontributors" ]
     | Modmail _ -> [ "modmail" ]
-    | Lock | Remove -> [ "modposts" ]
+    | Cleanup_thread | Lock | Remove -> [ "modposts" ]
     | Nuke -> [ "modposts"; "read" ]
     | Notify _ -> [ "modposts"; "submit" ])
 ;;

@@ -40,6 +40,7 @@ module Action_buffers : sig
     :  t
     -> retry_manager:Retry_manager.t
     -> subreddit:Subreddit_name.t
+    -> remaining_reports:Target.t list
     -> unit Deferred.t
 end
 
@@ -56,6 +57,10 @@ type t =
       ; reason : string (** Reason available to moderators *)
       ; duration : Endpoint.Parameters.Relationship_spec.Duration.t
       } (** Ban the target author. *)
+  | Cleanup_thread
+      (** Remove all reported comments in a thread.
+
+          Only takes effect after all rules have had a chance to handle the comments. *)
   | Lock (** Lock the target. *)
   | Nuke (** Recursively remove the target and its replies. *)
   | Modmail of
