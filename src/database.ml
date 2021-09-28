@@ -39,8 +39,8 @@ let already_acted t ~target ~moderator =
     Pgx_async.execute
       ~params:(target_fullname_params target @ [ username_param moderator ])
       t
-      "SELECT COUNT(1) FROM actions INNER JOIN users ON actions.moderator = users.id \
-       WHERE target = ($1, $2)::thing_id AND users.username = $3"
+      "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id AND moderator = \
+       $3"
   in
   match List.map rows ~f:(List.map ~f:Pgx.Value.to_int) with
   | [ [ Some n ] ] -> return (n > 0)

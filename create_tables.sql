@@ -61,3 +61,17 @@ CREATE TABLE contents (
     FOREIGN KEY (subreddit) REFERENCES subreddits (id)
 );
 
+CREATE OR REPLACE VIEW vw_actions AS
+SELECT
+    action.id,
+    action.target,
+    action.action_summary,
+    author.username AS author,
+    moderator.username AS moderator,
+    action. "time",
+    subreddits.display_name AS subreddit
+FROM
+    actions action
+    LEFT JOIN users author ON author.id = action.author
+    LEFT JOIN users moderator ON moderator.id = action.moderator
+    LEFT JOIN subreddits ON subreddits.id = action.subreddit
