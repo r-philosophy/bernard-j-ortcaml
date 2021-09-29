@@ -74,4 +74,17 @@ FROM
     actions action
     LEFT JOIN users author ON author.id = action.author
     LEFT JOIN users moderator ON moderator.id = action.moderator
-    LEFT JOIN subreddits ON subreddits.id = action.subreddit
+    LEFT JOIN subreddits ON subreddits.id = action.subreddit;
+
+CREATE OR REPLACE VIEW public.vw_contents AS
+SELECT
+    contents.id,
+    users.username AS author,
+    subreddits.display_name AS subreddit,
+    contents. "time",
+    contents.json
+FROM
+    contents
+    LEFT JOIN users ON users.id = contents.author
+    LEFT JOIN subreddits ON subreddits.id = contents.subreddit;
+
