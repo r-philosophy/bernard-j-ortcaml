@@ -88,3 +88,12 @@ FROM
     LEFT JOIN users ON users.id = contents.author
     LEFT JOIN subreddits ON subreddits.id = contents.subreddit;
 
+CREATE OR REPLACE VIEW public.vw_subreddit_moderator AS
+SELECT
+    subreddits.display_name AS subreddit,
+    users.username AS moderator
+FROM
+    subreddit_moderator
+    LEFT JOIN subreddits ON subreddit_moderator.subreddit_id = subreddits.id
+    LEFT JOIN users ON subreddit_moderator.moderator_id = users.id;
+
