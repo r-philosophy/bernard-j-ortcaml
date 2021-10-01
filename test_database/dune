@@ -3,3 +3,8 @@
  (libraries core async bernard_j_ortcutt)
  (preprocess
   (pps ppx_jane)))
+
+(rule
+ (alias manual-test)
+ (deps ../create_tables.sql main.exe test.sh (glob_files *.json))
+ (action (chdir %{project_root} (system ./test_database/test.sh))))
