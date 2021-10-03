@@ -6,5 +6,14 @@
 
 (rule
  (alias manual-test)
- (deps ../create_tables.sql main.exe test.sh (glob_files *.json))
- (action (chdir %{project_root} (system ./test_database/test.sh))))
+ (deps
+  (:create-tables ../create_tables.sql)
+  main.exe
+  (:link link.json)
+  (:subreddit subreddit.json))
+ (action
+  (progn
+   (system "dropdb testing")
+   (system "createdb testing")
+   (system "psql -d testing -f %{create-tables}")
+   (run ./main.exe -database testing -link %{link} -subreddit %{subreddit}))))
