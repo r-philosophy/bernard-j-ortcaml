@@ -138,7 +138,7 @@ module Automod_action_buffers = struct
 end
 
 let lock id ~retry_manager =
-  match%bind Retry_manager.call retry_manager (Endpoint.lock ~id ()) with
+  match%bind Retry_manager.call retry_manager (Endpoint.lock ~id) with
   | Ok () -> return ()
   | Error
       (Endpoint_error (Http_error { response = { status = `Bad_request; _ }; body = _ }))
@@ -173,7 +173,7 @@ let remove target ~retry_manager =
   retry_or_fail
     retry_manager
     [%here]
-    (Endpoint.remove ~id:(Target.fullname target) ~spam:false ())
+    (Endpoint.remove ~id:(Target.fullname target) ~spam:false)
 ;;
 
 let ban target ~retry_manager ~subreddit ~duration ~message ~reason =
@@ -217,7 +217,7 @@ let nuke (target : Target.t) ~retry_manager =
   in
   Iter_comments.iter_comments retry_manager ~comment_response ~f:(fun comment ->
       let id = `Comment (Thing.Comment.id comment) in
-      retry_or_fail retry_manager [%here] (Endpoint.remove ~id ~spam:false ()))
+      retry_or_fail retry_manager [%here] (Endpoint.remove ~id ~spam:false))
 ;;
 
 let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
@@ -238,8 +238,7 @@ let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
            ~body
            ~to_:(User author)
            ~subreddit
-           ~hide_author:true
-           ())
+           ~hide_author:true)
     in
     return ()
 ;;

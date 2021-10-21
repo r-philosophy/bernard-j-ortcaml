@@ -85,7 +85,7 @@ module Per_subreddit = struct
             retry_or_fail
               retry_manager
               [%here]
-              (Endpoint.approve ~id:(Action.Target.fullname target) ())
+              (Endpoint.approve ~id:(Action.Target.fullname target))
         in
         let%bind () =
           Deferred.List.iter
@@ -137,7 +137,7 @@ let create ~subreddit_configs ~connection ~database =
     Map.to_alist subreddit_configs
     |> Deferred.List.map ~f:(fun (subreddit, rules) ->
            let%bind subreddit_id =
-             retry_or_fail retry_manager [%here] (Endpoint.about_subreddit ~subreddit ())
+             retry_or_fail retry_manager [%here] (Endpoint.about_subreddit ~subreddit)
              >>| Thing.Subreddit.id
            in
            return
@@ -159,7 +159,7 @@ let refresh_subreddit_tables { subreddits; retry_manager; database } =
     retry_or_fail
       retry_manager
       [%here]
-      (Endpoint.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))) ())
+      (Endpoint.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))))
     >>| List.map ~f:(function
             | `Subreddit v -> v
             | (`Link _ | `Comment _) as thing ->
