@@ -70,6 +70,7 @@ type t =
   | Notify of { text : string }
       (** Reply to the target and distinguish the resulting comment. *)
   | Remove (** Remove the target. *)
+  | Set_flair of { template : Uuid.t } (** Set target link's flair. *)
   | Watch_via_automod of
       { key : Automod_key.t
       ; placeholder : string

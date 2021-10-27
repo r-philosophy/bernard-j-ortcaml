@@ -243,6 +243,13 @@ let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
     return ()
 ;;
 
+let set_flair link ~retry_manager ~template ~subreddit =
+  retry_or_fail
+    retry_manager
+    [%here]
+    (Endpoint.select_flair ~flair_template_id:template () ~subreddit ~target:(Link link))
+;;
+
 let notification_footer =
   "\n\n\
    -----\n\n\
@@ -314,6 +321,11 @@ let enqueue_automod_action
       Automod_action_buffers.add buffers ~placeholder ~value)
 ;;
 
+module Uuid = struct
+  include Uuid
+  include (Uuid.Unstable : Sexpable.S with type t := t)
+end
+
 type t =
   | Add_usernote of
       { level : string
@@ -333,6 +345,7 @@ type t =
       }
   | Notify of { text : string }
   | Remove
+  | Set_flair of { template : Uuid.t }
   | Watch_via_automod of
       { key : Automod_key.t
       ; placeholder : string
@@ -461,6 +474,10 @@ let act
   | Modmail { subject; body } -> modmail target ~retry_manager ~subject ~body ~subreddit
   | Notify { text } -> notify target ~retry_manager ~text
   | Remove -> remove target ~retry_manager
+  | Set_flair { template } ->
+    (match target with
+    | Comment _ -> return ()
+    | Link link -> set_flair (Thing.Link.id link) ~retry_manager ~template ~subreddit)
   | Watch_via_automod { key; placeholder } ->
     let buffers = action_buffers.automod in
     enqueue_automod_action target ~key ~placeholder ~buffers;
@@ -476,6 +493,7 @@ let will_remove t =
   | Lock
   | Modmail _
   | Notify _
+  | Set_flair _
   | Watch_via_automod _ -> false
 ;;
 
@@ -506,8 +524,13 @@ let validate =
   | Modmail { subject; body = _ } ->
     Validate.name "Modmail" (validate_max_length "subject" 100 subject)
   | Notify { text } -> Validate.name "Notify" (validate_max_length "text" 10_000 text)
-  | Add_usernote _ | Cleanup_thread | Lock | Nuke | Remove | Watch_via_automod _ ->
-    Validate.pass
+  | Add_usernote _
+  | Cleanup_thread
+  | Lock
+  | Nuke
+  | Remove
+  | Set_flair _
+  | Watch_via_automod _ -> Validate.pass
 ;;
 
 let required_scopes t =
@@ -519,5 +542,6 @@ let required_scopes t =
     | Modmail _ -> [ "modmail" ]
     | Cleanup_thread | Lock | Remove -> [ "modposts" ]
     | Nuke -> [ "modposts"; "read" ]
-    | Notify _ -> [ "modposts"; "submit" ])
+    | Notify _ -> [ "modposts"; "submit" ]
+    | Set_flair _ -> [ "flair" ])
 ;;
