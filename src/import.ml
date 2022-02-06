@@ -11,7 +11,7 @@ let retry_or_fail retry_manager here endpoint =
         "Reddit returned error"
           (here : Source_code_position.t)
           ~request:(endpoint.request : Endpoint.Request.t)
-          (error : Retry_manager.Non_transient_error.t)]
+          (error : Retry_manager.Permanent_error.t)]
 ;;
 
 (** A [Scope.t] represents an OAuth2 scope. *)

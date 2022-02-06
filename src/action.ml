@@ -150,7 +150,7 @@ let lock id ~retry_manager =
       [%message
         "Unexpected error while locking target."
           ((id :> Thing.Fullname.t) : Thing.Fullname.t)
-          (error : Retry_manager.Non_transient_error.t)]
+          (error : Retry_manager.Permanent_error.t)]
 ;;
 
 let complete_ban_message message (target : Target.t) =
