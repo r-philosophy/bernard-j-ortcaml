@@ -215,7 +215,11 @@ let nuke (target : Target.t) ~retry_manager =
   let%bind comment_response =
     retry_or_fail retry_manager [%here] (Endpoint.comments ?comment () ~link)
   in
-  Iter_comments.iter_comments retry_manager ~comment_response ~f:(fun comment ->
+  Iter_comments.iter_comments
+    retry_manager
+    ~log:(force Log.Global.log)
+    ~comment_response
+    ~f:(fun comment ->
       let id = `Comment (Thing.Comment.id comment) in
       retry_or_fail retry_manager [%here] (Endpoint.remove ~id ~spam:false))
 ;;
