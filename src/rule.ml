@@ -10,7 +10,7 @@ module Trigger = struct
   [@@deriving sexp, compare, fields]
 
   let validate t =
-    let v check field = Validate.field t field check in
+    let v check field = Validate.field check t field in
     let nonempty set =
       Validate.name "set length" (Int.validate_positive (Set.length set))
     in
@@ -42,7 +42,7 @@ type t =
 [@@deriving sexp, fields]
 
 let validate t =
-  let v check field = Validate.field t field check in
+  let v check field = Validate.field check t field in
   let pass _ = Validate.pass in
   Validate.of_list
     (Fields.to_list

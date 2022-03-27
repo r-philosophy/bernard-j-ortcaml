@@ -1,6 +1,7 @@
 open! Core
 open! Async
 include Reddit_api_async
+module Time_ns = Time_ns_unix
 
 let retry_or_fail retry_manager here endpoint =
   match%bind Retry_manager.call retry_manager endpoint with

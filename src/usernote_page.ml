@@ -115,7 +115,7 @@ let of_json json =
     |> List.map ~f:(fun (username, json) ->
            ( Username.of_string username
            , Json.find json [ "ns" ]
-             |> Json.get_list ident
+             |> Json.get_list Fn.id
              |> List.to_array
              |> Deque.of_array ))
     |> Username.Table.of_alist_exn

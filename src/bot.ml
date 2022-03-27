@@ -237,7 +237,7 @@ let per_subreddit_param =
   let%map_open.Command config_path =
     flag
       "-subreddits"
-      (required Filename.arg_type)
+      (required Filename_unix.arg_type)
       ~doc:"FILENAME Path to per-subreddit configs"
   in
   let%bind files = Sys.ls_dir config_path in
@@ -252,7 +252,7 @@ let per_subreddit_param =
             , Sexp.load_sexps_conv_exn absolute_path [%of_sexp: Rule.t] ))
     |> Subreddit_name.Map.of_alist_exn
   in
-  return (Validate.valid_or_error rules_unvalidated validate_per_subreddit_configs)
+  return (Validate.valid_or_error validate_per_subreddit_configs rules_unvalidated)
 ;;
 
 let database_param =

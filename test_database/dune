@@ -1,6 +1,6 @@
 (executable
  (name main)
- (libraries core async bernard_j_ortcutt)
+ (libraries core core_unix.command_unix async bernard_j_ortcutt)
  (preprocess
   (pps ppx_jane)))
 

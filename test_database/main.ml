@@ -61,13 +61,16 @@ let command =
     ~summary:"Test the database"
     (let%map_open.Command database = database_param
      and link_file =
-       flag "-link" (required Filename.arg_type) ~doc:"FILENAME Link JSON file"
+       flag "-link" (required Filename_unix.arg_type) ~doc:"FILENAME Link JSON file"
      and subreddit_file =
-       flag "-subreddit" (required Filename.arg_type) ~doc:"FILENAME Subreddit JSON file"
+       flag
+         "-subreddit"
+         (required Filename_unix.arg_type)
+         ~doc:"FILENAME Subreddit JSON file"
      in
      fun () ->
        let%bind database = database in
        test_suite database link_file subreddit_file)
 ;;
 
-let () = Command.run command
+let () = Command_unix.run command
