@@ -368,16 +368,16 @@ module Usernote_action_buffers = struct
     | notes ->
       Queue.clear t;
       let transform_page page =
-        match Json.of_string page with
+        match Jsonaf.parse page with
         | Error error ->
           raise_s
             [%message
               "Usernote page contained invalid json" (page : string) (error : Error.t)]
         | Ok json ->
-          let page = Usernote_page.of_json json in
+          let page = [%of_jsonaf: Usernote_page.t] json in
           List.iter notes ~f:(fun (username, spec) ->
               Usernote_page.add_note page ~username ~spec);
-          Usernote_page.to_json page |> Json.value_to_string
+          [%jsonaf_of: Usernote_page.t] page |> Jsonaf.to_string
       in
       let page : Wiki_page.Id.t = { subreddit = Some subreddit; page = "usernotes" } in
       update_wiki_page page ~retry_manager ~f:transform_page

@@ -4,6 +4,6 @@
  (libraries async base64 caqti-async caqti-driver-postgresql core ezgzip
    reddit_api_async)
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane ppx_jsonaf_conv)))
 
 (documentation)

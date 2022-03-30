@@ -51,17 +51,17 @@ module Types = struct
       ~encode:(fun (thing : Action.Target.t) ->
         let json =
           match thing with
-          | Comment comment -> Thing.Comment.to_json comment
-          | Link link -> Thing.Link.to_json link
+          | Comment comment -> [%jsonaf_of: Thing.Comment.t] comment
+          | Link link -> [%jsonaf_of: Thing.Link.t] link
         in
-        Ok (Json.value_to_string json))
+        Ok (Jsonaf.to_string json))
       ~decode:(fun s ->
         let open Or_error.Let_syntax in
-        let%bind json = Json.of_string s in
-        match Thing.Poly.of_json json with
+        let%bind json = Jsonaf.parse s in
+        match [%of_jsonaf: Thing.Poly.t] json with
         | `Comment comment -> Ok (Action.Target.Comment comment)
         | `Link link -> Ok (Link link)
-        | _ -> Or_error.error_s [%message "Unexpected thing JSON" (json : Json.t)])
+        | _ -> Or_error.error_s [%message "Unexpected thing JSON" (json : Jsonaf.t)])
   ;;
 
   let time =

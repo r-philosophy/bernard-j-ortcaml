@@ -10,18 +10,18 @@ end) =
 struct
   type t = Param.t option Queue.t [@@deriving sexp_of]
 
-  let of_json json =
-    let get_element json =
+  let t_of_jsonaf json =
+    let element_of_jsonaf json =
       match json with
       | `Null -> None
       | `String s -> Some (Param.of_string s)
-      | _ -> raise_s [%message "Unexpected usernote constant" (json : Json.t)]
+      | _ -> raise_s [%message "Unexpected usernote constant" (json : Jsonaf.t)]
     in
-    Json.get_list get_element json |> Queue.of_list
+    [%of_jsonaf: element list] json |> Queue.of_list
   ;;
 
-  let to_json t =
-    `A
+  let jsonaf_of_t t =
+    `Array
       (Queue.to_list t
       |> List.map ~f:(function
              | None -> `Null
@@ -67,17 +67,19 @@ module Note = struct
     [@@deriving sexp_of]
   end
 
-  type t = Json.t [@@deriving sexp_of]
+  type t = Jsonaf.t [@@deriving sexp_of]
 
   let create ({ text; context; time; moderator; warning } : Spec.t) ~moderators ~warnings =
     let moderator_index = Moderators.index moderators moderator in
     let warning_index = Warnings.index warnings warning in
-    `O
+    `Object
       [ "n", `String text
       ; "l", `String (Context.to_string context)
-      ; "t", Json.int (Time_ns.to_span_since_epoch time |> Time_ns.Span.to_int_sec)
-      ; "m", Json.int moderator_index
-      ; "w", Json.int warning_index
+      ; ( "t"
+        , [%jsonaf_of: int] (Time_ns.to_span_since_epoch time |> Time_ns.Span.to_int_sec)
+        )
+      ; "m", [%jsonaf_of: int] moderator_index
+      ; "w", [%jsonaf_of: int] warning_index
       ]
   ;;
 end
@@ -95,27 +97,36 @@ let decompress_blob blob =
     let error = Format.asprintf "%a" Ezgzip.Z.pp_zlib_error error in
     raise_s [%message "Error decompressing blob" (error : string)]
   | Ok s ->
-    (match Json.of_string s with
+    (match Jsonaf.parse s with
     | Ok json -> json
     | Error error ->
       raise_s [%message "Error converting blob to string" (error : Error.t)])
 ;;
 
-let of_json json =
+let t_of_jsonaf json =
   let () =
-    match Json.find json [ "ver" ] with
-    | `Float 6. -> ()
-    | version -> raise_s [%message "Unexpected usernotes version" (version : Json.t)]
+    match Jsonaf.member_exn "ver" json |> Jsonaf.int_exn with
+    | 6 -> ()
+    | version -> raise_s [%message "Unexpected usernotes version" (version : int)]
   in
-  let moderators = Json.find json [ "constants"; "users" ] |> Moderators.of_json in
-  let warnings = Json.find json [ "constants"; "warnings" ] |> Warnings.of_json in
+  let rec member_nested fields json =
+    match fields with
+    | [] -> json
+    | field :: rest -> member_nested rest (Jsonaf.member_exn field json)
+  in
+  let moderators =
+    member_nested [ "constants"; "users" ] json |> [%of_jsonaf: Moderators.t]
+  in
+  let warnings =
+    member_nested [ "constants"; "warnings" ] json |> [%of_jsonaf: Warnings.t]
+  in
   let notes =
-    let blob = decompress_blob (Json.find json [ "blob" ] |> Json.get_string) in
-    Json.get_dict blob
+    let blob = decompress_blob (Jsonaf.member_exn "blob" json |> Jsonaf.string_exn) in
+    Jsonaf.assoc_list_exn blob
     |> List.map ~f:(fun (username, json) ->
            ( Username.of_string username
-           , Json.find json [ "ns" ]
-             |> Json.get_list Fn.id
+           , Jsonaf.member_exn "ns" json
+             |> Jsonaf.list_exn
              |> List.to_array
              |> Deque.of_array ))
     |> Username.Table.of_alist_exn
@@ -124,22 +135,23 @@ let of_json json =
 ;;
 
 let compress_blob json =
-  Json.to_string json |> Ezgzip.Z.compress ~header:true |> Base64.encode_exn
+  Jsonaf.to_string json |> Ezgzip.Z.compress ~header:true |> Base64.encode_exn
 ;;
 
-let to_json { moderators; warnings; notes } =
+let jsonaf_of_t { moderators; warnings; notes } =
   let notes =
-    `O
+    `Object
       (Hashtbl.to_alist notes
       |> List.map ~f:(fun (username, notes) ->
-             Username.to_string username, `O [ "ns", `A (Deque.to_list notes) ]))
+             Username.to_string username, `Object [ "ns", `Array (Deque.to_list notes) ])
+      )
   in
-  `O
-    [ "ver", `Float 6.
+  `Object
+    [ "ver", [%jsonaf_of: int] 6
     ; ( "constants"
-      , `O
-          [ "users", Moderators.to_json moderators
-          ; "warnings", Warnings.to_json warnings
+      , `Object
+          [ "users", [%jsonaf_of: Moderators.t] moderators
+          ; "warnings", [%jsonaf_of: Warnings.t] warnings
           ] )
     ; "blob", `String (compress_blob notes)
     ]

@@ -17,11 +17,11 @@ let database_param =
 
 let test_suite database link_file subreddit_file =
   let link =
-    Thing.Link.of_json (Or_error.ok_exn (Json.of_string (In_channel.read_all link_file)))
+    [%of_jsonaf: Thing.Link.t] (Jsonaf.of_string (In_channel.read_all link_file))
   in
   let subreddit =
-    Thing.Subreddit.of_json
-      (Or_error.ok_exn (Json.of_string (In_channel.read_all subreddit_file)))
+    [%of_jsonaf: Thing.Subreddit.t]
+      (Jsonaf.of_string (In_channel.read_all subreddit_file))
   in
   let target : Bernard_j_ortcutt.Action.Target.t = Link link in
   let author = Thing.Link.author link in

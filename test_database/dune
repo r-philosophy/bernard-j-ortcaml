@@ -2,7 +2,7 @@
  (name main)
  (libraries core core_unix.command_unix async bernard_j_ortcutt)
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane ppx_jsonaf_conv)))
 
 (rule
  (alias manual-test)
