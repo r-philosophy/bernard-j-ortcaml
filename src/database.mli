@@ -30,6 +30,12 @@ val update_moderator_table
   -> unit Deferred.t
 
 module Types : sig
+  val custom_type
+    :  'a Caqti_type.t
+    -> encode:('b -> ('a, Error.t) result)
+    -> decode:('a -> ('b, Error.t) result)
+    -> 'b Caqti_type.t
+
   val fullname
     : [ `Comment of Thing.Comment.Id.t | `Link of Thing.Link.Id.t ] Caqti_type.t
 
