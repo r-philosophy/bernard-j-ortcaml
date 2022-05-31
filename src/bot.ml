@@ -189,29 +189,30 @@ let run_forever t =
             Ivar.fill ivar ()))
   in
   let%bind () = refresh_subreddit_tables t in
-  let run_until_stop span f =
+  let run_until_stop here span f =
+    let f () =
+      Deferred.repeat_until_finished () (fun () ->
+          match%bind Monitor.try_with_or_error ~rest:`Raise f with
+          | Ok () -> return (`Finished ())
+          | Error error ->
+            let retry_delay = Time_ns.Span.minute in
+            Log.Global.error_s
+              [%message
+                "Unhandled error. Repeating main bot loop after delay."
+                  (retry_delay : Time_ns.Span.t)
+                  (here : Source_code_position.t)
+                  (error : Error.t)];
+            let%bind () = Clock_ns.after retry_delay in
+            return (`Repeat ()))
+    in
     Deferred.create (fun finished -> Clock_ns.every' ~stop ~finished span f)
   in
-  Deferred.repeat_until_finished () (fun () ->
-      match%bind
-        Monitor.try_with_or_error (fun () ->
-            Deferred.all_unit
-              [ run_until_stop (Time_ns.Span.of_string "5m") (fun () ->
-                    refresh_subreddit_tables t)
-              ; run_until_stop (Time_ns.Span.of_string "30s") (fun () ->
-                    Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
-              ])
-      with
-      | Ok () -> return (`Finished ())
-      | Error error ->
-        let retry_delay = Time_ns.Span.minute in
-        Log.Global.error_s
-          [%message
-            "Unhandled error. Repeating main bot loop after delay."
-              (retry_delay : Time_ns.Span.t)
-              (error : Error.t)];
-        let%bind () = Clock_ns.after retry_delay in
-        return (`Repeat ()))
+  Deferred.all_unit
+    [ run_until_stop [%here] (Time_ns.Span.of_string "5m") (fun () ->
+          refresh_subreddit_tables t)
+    ; run_until_stop [%here] (Time_ns.Span.of_string "30s") (fun () ->
+          Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
+    ]
 ;;
 
 let connection_param =
