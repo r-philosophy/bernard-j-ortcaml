@@ -1,0 +1,3 @@
+[submodule "vendor/ocaml-reddit-api"]
+	path = vendor/ocaml-reddit-api
+	url = git@github.com:leviroth/ocaml-reddit-api.git
