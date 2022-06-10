@@ -109,142 +109,147 @@ let target_fullname (target : Action.Target.t) =
   | Link link -> `Link (Thing.Link.id link)
 ;;
 
-let get_or_create_user_id (module Connection : Caqti_async.CONNECTION) ~username =
-  let open Deferred.Result.Let_syntax in
-  let%bind () =
-    let request =
-      Build_request.(username ->. unit)
-        "INSERT INTO users (username) VALUES($1) ON CONFLICT DO NOTHING"
-    in
-    Connection.exec request username
+let get_or_create_user_id =
+  let insert_user_request =
+    Build_request.(username ->. unit)
+      "INSERT INTO users (username) VALUES($1) ON CONFLICT DO NOTHING"
   in
-  let request =
+  let get_id_request =
     Build_request.(username ->! int) "SELECT id FROM users WHERE username = $1"
   in
-  Connection.find request username
+  fun (module Connection : Caqti_async.CONNECTION) ~username ->
+    let open Deferred.Result.Let_syntax in
+    let%bind () = Connection.exec insert_user_request username in
+    Connection.find get_id_request username
 ;;
 
-let already_acted t ~target ~moderator =
-  with_t t ~f:(fun (module Connection) ->
-      let open Deferred.Result.Let_syntax in
-      let request =
-        Build_request.(tup2 fullname username ->! int)
-          "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id AND \
-           moderator = $3"
-      in
-      let%bind action_count =
-        Connection.find request (target_fullname target, moderator)
-      in
-      return (action_count > 0))
+let already_acted =
+  let request =
+    Build_request.(tup2 fullname username ->! int)
+      "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id AND moderator = \
+       $3"
+  in
+  fun t ~target ~moderator ->
+    with_t t ~f:(fun (module Connection) ->
+        let open Deferred.Result.Let_syntax in
+        let%bind action_count =
+          Connection.find request (target_fullname target, moderator)
+        in
+        return (action_count > 0))
 ;;
 
-let record_contents t ~target =
-  with_t t ~f:(fun ((module Connection) as connection) ->
-      let open Deferred.Result.Let_syntax in
-      let%bind author_id =
-        match Action.Target.author target with
-        | None -> return None
-        | Some username ->
-          let%bind id = get_or_create_user_id connection ~username in
-          return (Some id)
-      in
-      let%bind subreddit_id =
-        let subreddit =
+let record_contents =
+  let select_contents_request =
+    Build_request.(subreddit_name ->! subreddit_id)
+      "SELECT id FROM subreddits WHERE display_name = $1"
+  in
+  let insert_contents_request =
+    Build_request.(tup2 (tup4 fullname (option int) subreddit_id time) thing ->. unit)
+      "INSERT INTO contents (id, author, subreddit, time, json) \
+       VALUES(($1,$2),$3,$4,$5,$6)"
+  in
+  fun t ~target ->
+    with_t t ~f:(fun ((module Connection) as connection) ->
+        let open Deferred.Result.Let_syntax in
+        let%bind author_id =
+          match Action.Target.author target with
+          | None -> return None
+          | Some username ->
+            let%bind id = get_or_create_user_id connection ~username in
+            return (Some id)
+        in
+        let%bind subreddit_id =
+          let subreddit =
+            match target with
+            | Comment comment -> Thing.Comment.subreddit comment
+            | Link link -> Thing.Link.subreddit link
+          in
+          Connection.find select_contents_request subreddit
+        in
+        let time =
           match target with
-          | Comment comment -> Thing.Comment.subreddit comment
-          | Link link -> Thing.Link.subreddit link
+          | Comment comment -> Thing.Comment.creation_time comment
+          | Link link -> Thing.Link.creation_time link
         in
-        let request =
-          Build_request.(subreddit_name ->! subreddit_id)
-            "SELECT id FROM subreddits WHERE display_name = $1"
+        match%bind.Deferred
+          Connection.exec
+            insert_contents_request
+            ((target_fullname target, author_id, subreddit_id, time), target)
+        with
+        | Ok () -> return `Ok
+        | Error error ->
+          let raise_error () = raise (Caqti_error.Exn error) in
+          (match error with
+          | (`Request_failed _ | `Response_failed _) as error ->
+            (match Caqti_error.cause error with
+            | `Unique_violation -> return `Already_recorded
+            | _ -> raise_error ())
+          | _ -> raise_error ()))
+;;
+
+let log_rule_application =
+  let request =
+    Build_request.(
+      tup2 (tup4 fullname string (option int) int) (tup2 time subreddit_id) ->. unit)
+      "INSERT INTO actions (target, action_summary, author, moderator, time, subreddit) \
+       VALUES(($1,$2),$3,$4,$5,$6,$7)"
+  in
+  fun t ~target ~action_summary ~author ~moderator ~subreddit ~time ->
+    with_t t ~f:(fun ((module Connection) as connection) ->
+        let open Deferred.Result.Let_syntax in
+        let%bind author_id =
+          match author with
+          | None -> return None
+          | Some username ->
+            let%bind id = get_or_create_user_id connection ~username in
+            return (Some id)
         in
-        Connection.find request subreddit
-      in
-      let time =
-        match target with
-        | Comment comment -> Thing.Comment.creation_time comment
-        | Link link -> Thing.Link.creation_time link
-      in
-      let request =
-        Build_request.(tup2 (tup4 fullname (option int) subreddit_id time) thing ->. unit)
-          "INSERT INTO contents (id, author, subreddit, time, json) \
-           VALUES(($1,$2),$3,$4,$5,$6)"
-      in
-      match%bind.Deferred
+        let%bind moderator_id = get_or_create_user_id connection ~username:moderator in
+        let target_fullname = target_fullname target in
         Connection.exec
           request
-          ((target_fullname target, author_id, subreddit_id, time), target)
-      with
-      | Ok () -> return `Ok
-      | Error error ->
-        let raise_error () = raise (Caqti_error.Exn error) in
-        (match error with
-        | (`Request_failed _ | `Response_failed _) as error ->
-          (match Caqti_error.cause error with
-          | `Unique_violation -> return `Already_recorded
-          | _ -> raise_error ())
-        | _ -> raise_error ()))
+          ((target_fullname, action_summary, author_id, moderator_id), (time, subreddit)))
 ;;
 
-let log_rule_application t ~target ~action_summary ~author ~moderator ~subreddit ~time =
-  with_t t ~f:(fun ((module Connection) as connection) ->
-      let open Deferred.Result.Let_syntax in
-      let%bind author_id =
-        match author with
-        | None -> return None
-        | Some username ->
-          let%bind id = get_or_create_user_id connection ~username in
-          return (Some id)
-      in
-      let%bind moderator_id = get_or_create_user_id connection ~username:moderator in
-      let target_fullname = target_fullname target in
-      let request =
-        Build_request.(
-          tup2 (tup4 fullname string (option int) int) (tup2 time subreddit_id) ->. unit)
-          "INSERT INTO actions (target, action_summary, author, moderator, time, \
-           subreddit) VALUES(($1,$2),$3,$4,$5,$6,$7)"
-      in
-      Connection.exec
-        request
-        ((target_fullname, action_summary, author_id, moderator_id), (time, subreddit)))
+let update_subscriber_counts =
+  let insert_subreddit_request =
+    Build_request.(tup2 subreddit_id subreddit_name ->. unit)
+      "INSERT INTO subreddits (id, display_name) VALUES($1,$2) ON CONFLICT DO NOTHING"
+  in
+  let update_subscribers_request =
+    Build_request.(tup2 int subreddit_id ->. unit)
+      "UPDATE subreddits SET subscribers = $1 WHERE id = $2"
+  in
+  fun t ~subreddits ->
+    with_t t ~f:(fun (module Connection) ->
+        Deferred.List.map subreddits ~f:(fun subreddit ->
+            let open Deferred.Result.Let_syntax in
+            let subreddit_id = Thing.Subreddit.id subreddit in
+            let display_name = Thing.Subreddit.name subreddit in
+            let%bind () =
+              Connection.exec insert_subreddit_request (subreddit_id, display_name)
+            in
+            let subscribers = Thing.Subreddit.subscribers subreddit in
+            Connection.exec update_subscribers_request (subscribers, subreddit_id))
+        >>| Result.all_unit)
 ;;
 
-let update_subscriber_counts t ~subreddits =
-  with_t t ~f:(fun (module Connection) ->
-      Deferred.List.map subreddits ~f:(fun subreddit ->
-          let open Deferred.Result.Let_syntax in
-          let subreddit_id = Thing.Subreddit.id subreddit in
-          let display_name = Thing.Subreddit.name subreddit in
-          let request =
-            Build_request.(tup2 subreddit_id subreddit_name ->. unit)
-              "INSERT INTO subreddits (id, display_name) VALUES($1,$2) ON CONFLICT DO \
-               NOTHING"
-          in
-          let%bind () = Connection.exec request (subreddit_id, display_name) in
-          let subscribers = Thing.Subreddit.subscribers subreddit in
-          let request =
-            Build_request.(tup2 int subreddit_id ->. unit)
-              "UPDATE subreddits SET subscribers = $1 WHERE id = $2"
-          in
-          Connection.exec request (subscribers, subreddit_id))
-      >>| Result.all_unit)
-;;
-
-let update_moderator_table t ~moderators ~subreddit =
-  with_t t ~f:(fun ((module Connection) as connection) ->
-      let request =
-        Build_request.(subreddit_id ->. unit)
-          "DELETE FROM subreddit_moderator WHERE subreddit_id = $1"
-      in
-      let%bind.Deferred.Result () = Connection.exec request subreddit in
-      Deferred.List.map moderators ~f:(fun moderator ->
-          let open Deferred.Result.Let_syntax in
-          let%bind user_id = get_or_create_user_id connection ~username:moderator in
-          let request =
-            Build_request.(tup2 subreddit_id int ->. unit)
-              "INSERT INTO subreddit_moderator (subreddit_id, moderator_id) \
-               VALUES($1,$2) ON CONFLICT DO NOTHING"
-          in
-          Connection.exec request (subreddit, user_id))
-      >>| Result.all_unit)
+let update_moderator_table =
+  let delete_request =
+    Build_request.(subreddit_id ->. unit)
+      "DELETE FROM subreddit_moderator WHERE subreddit_id = $1"
+  in
+  let insert_request =
+    Build_request.(tup2 subreddit_id int ->. unit)
+      "INSERT INTO subreddit_moderator (subreddit_id, moderator_id) VALUES($1,$2) ON \
+       CONFLICT DO NOTHING"
+  in
+  fun t ~moderators ~subreddit ->
+    with_t t ~f:(fun ((module Connection) as connection) ->
+        let%bind.Deferred.Result () = Connection.exec delete_request subreddit in
+        Deferred.List.map moderators ~f:(fun moderator ->
+            let open Deferred.Result.Let_syntax in
+            let%bind user_id = get_or_create_user_id connection ~username:moderator in
+            Connection.exec insert_request (subreddit, user_id))
+        >>| Result.all_unit)
 ;;
