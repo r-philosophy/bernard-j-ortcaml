@@ -186,32 +186,38 @@ let run_forever t =
     Deferred.create (fun ivar ->
         Signal.handle Signal.terminating ~f:(fun signal ->
             Log.Global.info_s [%message "Stopping on signal" (signal : Signal.t)];
-            Ivar.fill ivar ()))
+            Ivar.fill_if_empty ivar ()))
+  in
+  let repeat_or_exit_early repeat_delay =
+    choose
+      [ choice (Clock_ns.after repeat_delay) (fun () -> `Repeat ())
+      ; choice stop (fun () -> `Finished ())
+      ]
+  in
+  let run_until_stop ~repeat_delay ~description ~f =
+    Deferred.repeat_until_finished () (fun () ->
+        match%bind Monitor.try_with_or_error f with
+        | Ok () -> repeat_or_exit_early repeat_delay
+        | Error error ->
+          let retry_delay = Time_ns.Span.minute in
+          Log.Global.error_s
+            [%message
+              "Unhandled error. Repeating after delay."
+                (description : string)
+                (retry_delay : Time_ns.Span.t)
+                (error : Error.t)];
+          repeat_or_exit_early retry_delay)
   in
   let%bind () = refresh_subreddit_tables t in
-  let run_until_stop here span f =
-    let f () =
-      Deferred.repeat_until_finished () (fun () ->
-          match%bind Monitor.try_with_or_error ~rest:`Raise f with
-          | Ok () -> return (`Finished ())
-          | Error error ->
-            let retry_delay = Time_ns.Span.minute in
-            Log.Global.error_s
-              [%message
-                "Unhandled error. Repeating main bot loop after delay."
-                  (retry_delay : Time_ns.Span.t)
-                  (here : Source_code_position.t)
-                  (error : Error.t)];
-            let%bind () = Clock_ns.after retry_delay in
-            return (`Repeat ()))
-    in
-    Deferred.create (fun finished -> Clock_ns.every' ~stop ~finished span f)
-  in
   Deferred.all_unit
-    [ run_until_stop [%here] (Time_ns.Span.of_string "5m") (fun () ->
-          refresh_subreddit_tables t)
-    ; run_until_stop [%here] (Time_ns.Span.of_string "30s") (fun () ->
-          Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
+    [ run_until_stop
+        ~repeat_delay:(Time_ns.Span.of_string "5m")
+        ~description:"Subreddit table update"
+        ~f:(fun () -> refresh_subreddit_tables t)
+    ; run_until_stop
+        ~repeat_delay:(Time_ns.Span.of_string "30s")
+        ~description:"Main bot loop"
+        ~f:(fun () -> Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
     ]
 ;;
 
