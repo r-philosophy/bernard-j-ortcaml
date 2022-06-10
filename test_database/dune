@@ -16,4 +16,5 @@
    (system "dropdb testing")
    (system "createdb testing")
    (system "psql -d testing -f %{create-tables}")
-   (run ./main.exe -database postgresql:///testing -link %{link} -subreddit %{subreddit}))))
+   (run ./main.exe -database postgresql:///testing -link %{link} -subreddit
+     %{subreddit}))))
