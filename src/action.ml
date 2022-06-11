@@ -90,9 +90,9 @@ let update_wiki_page ?reason page ~retry_manager ~f =
 ;;
 
 module Automod_action_buffers = struct
-  type t = string Queue.t String.Table.t [@@deriving sexp_of]
+  type t = string Queue.t Hashtbl.M(String).t [@@deriving sexp_of]
 
-  let create () = String.Table.create ()
+  let create () = Hashtbl.create (module String)
 
   let add t ~placeholder ~value =
     let queue = Hashtbl.find_or_add t placeholder ~default:Queue.create in

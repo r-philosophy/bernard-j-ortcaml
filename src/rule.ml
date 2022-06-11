@@ -4,8 +4,8 @@ open! Import
 
 module Trigger = struct
   type t =
-    { commands : String.Caseless.Set.t
-    ; kinds : Action.Target.Kind.Set.t
+    { commands : Set.M(String.Caseless).t
+    ; kinds : Set.M(Action.Target.Kind).t
     }
   [@@deriving sexp, compare, fields]
 

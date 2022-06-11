@@ -304,10 +304,11 @@ let required_scopes_command =
      fun () ->
        let%bind subreddit_configs = Deferred.Or_error.ok_exn subreddit_configs in
        let always_required =
-         Scope.Set.of_list (List.map ~f:Scope.of_string [ "modposts"; "read" ])
+         Set.of_list (module Scope) (List.map ~f:Scope.of_string [ "modposts"; "read" ])
        in
        let for_rules =
-         Scope.Set.of_list
+         Set.of_list
+           (module Scope)
            (let open List.Let_syntax in
            let%bind rule = List.concat (Map.data subreddit_configs) in
            let%bind action = rule.actions in

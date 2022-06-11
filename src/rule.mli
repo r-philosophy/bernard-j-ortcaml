@@ -13,8 +13,8 @@ module Trigger : sig
       "rule 1".
   *)
   type t =
-    { commands : String.Caseless.Set.t
-    ; kinds : Action.Target.Kind.Set.t
+    { commands : Set.M(String.Caseless).t
+    ; kinds : Set.M(Action.Target.Kind).t
     }
   [@@deriving sexp, compare]
 end

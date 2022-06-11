@@ -87,7 +87,7 @@ end
 type t =
   { moderators : Moderators.t
   ; warnings : Warnings.t
-  ; notes : Note.t Deque.t Username.Table.t
+  ; notes : Note.t Deque.t Hashtbl.M(Username).t
   }
 [@@deriving sexp_of]
 
@@ -129,7 +129,7 @@ let t_of_jsonaf json =
              |> Jsonaf.list_exn
              |> List.to_array
              |> Deque.of_array ))
-    |> Username.Table.of_alist_exn
+    |> Hashtbl.of_alist_exn (module Username)
   in
   { moderators; warnings; notes }
 ;;
