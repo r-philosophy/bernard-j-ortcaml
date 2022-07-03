@@ -1,7 +1,6 @@
 (library
  (name bernard_j_ortcutt_test)
- (libraries async base64 bernard_j_ortcutt core ezgzip pgx_async
-   reddit_api_kernel)
+ (libraries async base64 bernard_j_ortcutt core ezgzip reddit_api_kernel)
  (inline_tests)
  (preprocess
   (pps ppx_jane ppx_jsonaf_conv)))
