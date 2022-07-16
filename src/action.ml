@@ -120,7 +120,7 @@ module Automod_action_buffers = struct
       Queue.clear buffer;
       let transform_page =
         let pattern = String.Search_pattern.create ~case_sensitive:true placeholder in
-        let replacement = String.concat (placeholder :: to_insert) ~sep:", " in
+        let replacement = String.concat (placeholder :: to_insert) ~sep:",\n  " in
         fun content ->
           let content = unescape content in
           String.Search_pattern.replace_all pattern ~in_:content ~with_:replacement
