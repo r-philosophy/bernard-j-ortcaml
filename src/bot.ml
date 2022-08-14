@@ -229,6 +229,7 @@ let connection_param =
     Sexp.load_sexp_conv_exn auth_config_path [%of_sexp: Connection.Credentials.t]
   in
   Connection.create
+    ~rate_limiter_log:(force Log.Global.log)
     credentials
     ~user_agent:"BernardJOrtcutt v2.0 - by /u/L72_Elite_Kraken"
 ;;
@@ -277,7 +278,8 @@ let database_param =
 let param =
   let%map_open.Command connection = connection_param
   and database = database_param
-  and subreddit_configs = per_subreddit_param in
+  and subreddit_configs = per_subreddit_param
+  and () = Log.Global.set_level_via_param () in
   fun () ->
     let%bind.Deferred.Or_error subreddit_configs = subreddit_configs in
     let%bind t = create ~connection ~subreddit_configs ~database in
