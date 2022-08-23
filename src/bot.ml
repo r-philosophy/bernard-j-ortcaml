@@ -229,7 +229,6 @@ let connection_param =
     Sexp.load_sexp_conv_exn auth_config_path [%of_sexp: Connection.Credentials.t]
   in
   Connection.create
-    ~rate_limiter_log:(force Log.Global.log)
     credentials
     ~user_agent:"BernardJOrtcutt v2.0 - by /u/L72_Elite_Kraken"
 ;;
