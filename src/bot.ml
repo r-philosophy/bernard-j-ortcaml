@@ -4,7 +4,7 @@ open! Import
 
 let get_full_listing here ~retry_manager ~get_listing =
   let get_one pagination =
-    retry_or_fail retry_manager here (get_listing ?pagination ~limit:100 ())
+    Utils.retry_or_fail retry_manager here (get_listing ?pagination ~limit:100 ())
   in
   Deferred.repeat_until_finished (None, []) (fun (after, listings) ->
       let%bind listing = get_one after in
@@ -82,7 +82,7 @@ module Per_subreddit = struct
           match Rule.will_remove rule with
           | true -> return ()
           | false ->
-            retry_or_fail
+            Utils.retry_or_fail
               retry_manager
               [%here]
               (Endpoint.approve ~id:(Action.Target.fullname target))
@@ -137,7 +137,10 @@ let create ~subreddit_configs ~connection ~database =
     Map.to_alist subreddit_configs
     |> Deferred.List.map ~f:(fun (subreddit, rules) ->
            let%bind subreddit_id =
-             retry_or_fail retry_manager [%here] (Endpoint.about_subreddit ~subreddit)
+             Utils.retry_or_fail
+               retry_manager
+               [%here]
+               (Endpoint.about_subreddit ~subreddit)
              >>| Thing.Subreddit.id
            in
            return
@@ -156,7 +159,7 @@ let create ~subreddit_configs ~connection ~database =
 let refresh_subreddit_tables { subreddits; retry_manager; database } =
   let subreddit_ids = List.map subreddits ~f:Per_subreddit.subreddit_id in
   let%bind subreddits =
-    retry_or_fail
+    Utils.retry_or_fail
       retry_manager
       [%here]
       (Endpoint.info (Id (List.map subreddit_ids ~f:(fun v -> `Subreddit v))))

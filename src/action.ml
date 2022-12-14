@@ -65,30 +65,6 @@ module Target = struct
   ;;
 end
 
-let update_wiki_page ?reason page ~retry_manager ~f =
-  let%bind wiki_page =
-    retry_or_fail retry_manager [%here] (Endpoint.wiki_page ~page ())
-  in
-  let content = Wiki_page.content wiki_page `markdown in
-  let revision_id = Wiki_page.revision_id wiki_page in
-  let rec loop content ~previous =
-    let new_content = f content in
-    match%bind
-      retry_or_fail
-        retry_manager
-        [%here]
-        (Endpoint.edit_wiki_page ~previous ~content:new_content ?reason ~page ())
-    with
-    | Ok () -> return ()
-    | Error conflict ->
-      loop
-        (Wiki_page.Edit_conflict.new_content conflict)
-        ~previous:(Wiki_page.Edit_conflict.new_revision conflict)
-  in
-  let%bind () = loop content ~previous:revision_id in
-  Clock_ns.after Time_ns.Span.second
-;;
-
 module Automod_action_buffers = struct
   type t = string Queue.t Hashtbl.M(String).t [@@deriving sexp_of]
 
@@ -128,7 +104,7 @@ module Automod_action_buffers = struct
       let page : Wiki_page.Id.t =
         { subreddit = Some subreddit; page = "config/automoderator" }
       in
-      update_wiki_page page ~retry_manager ~f:transform_page
+      Utils.update_wiki_page page ~retry_manager ~f:transform_page
   ;;
 
   let commit_all (t : t) ~retry_manager ~subreddit =
@@ -170,7 +146,7 @@ let complete_ban_message message (target : Target.t) =
 ;;
 
 let remove target ~retry_manager =
-  retry_or_fail
+  Utils.retry_or_fail
     retry_manager
     [%here]
     (Endpoint.remove ~id:(Target.fullname target) ~spam:false)
@@ -188,7 +164,7 @@ let ban target ~retry_manager ~subreddit ~duration ~message ~reason =
     let ban_message =
       Option.map message ~f:(fun message -> complete_ban_message message target)
     in
-    retry_or_fail
+    Utils.retry_or_fail
       retry_manager
       [%here]
       (Endpoint.add_relationship
@@ -213,7 +189,7 @@ let nuke (target : Target.t) ~retry_manager =
     | Link _ -> None
   in
   let%bind comment_response =
-    retry_or_fail retry_manager [%here] (Endpoint.comments ?comment () ~link)
+    Utils.retry_or_fail retry_manager [%here] (Endpoint.comments ?comment () ~link)
   in
   let pipe =
     Iter_comments.iter_comments
@@ -223,7 +199,7 @@ let nuke (target : Target.t) ~retry_manager =
   in
   Pipe.iter pipe ~f:(fun comment ->
       let id = `Comment (Thing.Comment.id comment) in
-      retry_or_fail retry_manager [%here] (Endpoint.remove ~id ~spam:false))
+      Utils.retry_or_fail retry_manager [%here] (Endpoint.remove ~id ~spam:false))
 ;;
 
 let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
@@ -236,7 +212,7 @@ let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
     return ()
   | Some author ->
     let%bind (_ : Modmail.Conversation.t) =
-      retry_or_fail
+      Utils.retry_or_fail
         retry_manager
         [%here]
         (Endpoint.create_modmail_conversation
@@ -250,7 +226,7 @@ let modmail (target : Target.t) ~retry_manager ~subject ~body ~subreddit =
 ;;
 
 let set_flair link ~retry_manager ~template ~subreddit =
-  retry_or_fail
+  Utils.retry_or_fail
     retry_manager
     [%here]
     (Endpoint.select_flair ~flair_template_id:template () ~subreddit ~target:(Link link))
@@ -268,7 +244,7 @@ let notify (target : Target.t) ~retry_manager ~text =
   let parent = Target.fullname target in
   (* TODO: Maybe it's too old *)
   let%bind notification =
-    retry_or_fail
+    Utils.retry_or_fail
       retry_manager
       [%here]
       (Endpoint.add_comment ~parent ~text:comment_text ())
@@ -280,7 +256,7 @@ let notify (target : Target.t) ~retry_manager ~text =
     | Comment -> None
   in
   let%bind (_ : [ `Link of Thing.Link.t | `Comment of Thing.Comment.t ]) =
-    retry_or_fail
+    Utils.retry_or_fail
       retry_manager
       [%here]
       (Endpoint.distinguish ?sticky ~id:notification_id ~how:Mod ())
@@ -365,24 +341,9 @@ module Usernote_action_buffers = struct
   let add t ~user ~note = Queue.enqueue t (user, note)
 
   let commit t ~retry_manager ~subreddit =
-    match Queue.to_list t with
-    | [] -> return ()
-    | notes ->
-      Queue.clear t;
-      let transform_page page =
-        match Jsonaf.parse page with
-        | Error error ->
-          raise_s
-            [%message
-              "Usernote page contained invalid json" (page : string) (error : Error.t)]
-        | Ok json ->
-          let page = [%of_jsonaf: Usernote_page.t] json in
-          List.iter notes ~f:(fun (username, spec) ->
-              Usernote_page.add_note page ~username ~spec);
-          [%jsonaf_of: Usernote_page.t] page |> Jsonaf.to_string
-      in
-      let page : Wiki_page.Id.t = { subreddit = Some subreddit; page = "usernotes" } in
-      update_wiki_page page ~retry_manager ~f:transform_page
+    let notes = Queue.to_list t in
+    Queue.clear t;
+    Utils.add_user_notes notes ~retry_manager ~subreddit
   ;;
 end
 
