@@ -55,7 +55,9 @@ module Per_subreddit = struct
       raise_s
         [%message "A moderator deleted their account. Weird!" (target : Action.Target.t)]
     | Some (rule, Some moderator) ->
-      (match%bind Database.already_acted database ~target ~moderator with
+      (match%bind
+         Database.already_acted database ~target ~restrict_to_moderator:(Some moderator)
+       with
       | true -> return `Did_not_act
       | false ->
         Log.Global.info_s

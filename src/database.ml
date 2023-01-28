@@ -124,16 +124,26 @@ let get_or_create_user_id =
 ;;
 
 let already_acted =
-  let request =
+  let request_filtered_by_moderator =
     Build_request.(tup2 fullname username ->! int)
       "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id AND moderator = \
        $3"
   in
-  fun t ~target ~moderator ->
+  let request_not_filtered_by_moderator =
+    Build_request.(fullname ->! int)
+      "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id"
+  in
+  fun t ~target ~restrict_to_moderator ->
     with_t t ~f:(fun (module Connection) ->
         let open Deferred.Result.Let_syntax in
         let%bind action_count =
-          Connection.find request (target_fullname target, moderator)
+          match restrict_to_moderator with
+          | None ->
+            Connection.find request_not_filtered_by_moderator (target_fullname target)
+          | Some moderator ->
+            Connection.find
+              request_filtered_by_moderator
+              (target_fullname target, moderator)
         in
         return (action_count > 0))
 ;;

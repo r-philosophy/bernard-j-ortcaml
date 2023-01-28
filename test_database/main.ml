@@ -34,7 +34,9 @@ let test_suite database link_file subreddit_file =
       ~moderators:[ moderator ]
       ~subreddit:subreddit_id
   in
-  let%bind already_acted = Database.already_acted database ~target ~moderator in
+  let%bind already_acted =
+    Database.already_acted database ~target ~restrict_to_moderator:(Some moderator)
+  in
   assert (not already_acted);
   let%bind () =
     Database.log_rule_application
@@ -46,7 +48,9 @@ let test_suite database link_file subreddit_file =
       ~subreddit:subreddit_id
       ~time:Time_ns.epoch
   in
-  let%bind already_acted = Database.already_acted database ~target ~moderator in
+  let%bind already_acted =
+    Database.already_acted database ~target ~restrict_to_moderator:(Some moderator)
+  in
   assert already_acted;
   let%bind () =
     match%bind Database.record_contents database ~target with
