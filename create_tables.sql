@@ -82,7 +82,7 @@ SELECT
     users.username AS author,
     subreddits.display_name AS subreddit,
     contents. "time",
-    contents.json
+    regexp_replace(contents.json, '(?<!\\)\\u0000', '', 'g')::json AS json
 FROM
     contents
     LEFT JOIN users ON users.id = contents.author
