@@ -97,7 +97,7 @@ end
 
 type t = (Caqti_async.connection, Caqti_error.t) Caqti_async.Pool.t
 
-let with_t (t : t) ~f =
+let with_t_exn (t : t) ~f =
   match%bind Caqti_async.Pool.use f t with
   | Ok v -> return v
   | Error error -> raise (Caqti_error.Exn (error :> Caqti_error.t))
@@ -134,7 +134,7 @@ let already_acted =
       "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id"
   in
   fun t ~target ~restrict_to_moderator ->
-    with_t t ~f:(fun (module Connection) ->
+    with_t_exn t ~f:(fun (module Connection) ->
         let open Deferred.Result.Let_syntax in
         let%bind action_count =
           match restrict_to_moderator with
@@ -159,7 +159,7 @@ let record_contents =
        VALUES(($1,$2),$3,$4,$5,$6)"
   in
   fun t ~target ->
-    with_t t ~f:(fun ((module Connection) as connection) ->
+    with_t_exn t ~f:(fun ((module Connection) as connection) ->
         let open Deferred.Result.Let_syntax in
         let%bind author_id =
           match Action.Target.author target with
@@ -205,7 +205,7 @@ let log_rule_application =
        VALUES(($1,$2),$3,$4,$5,$6,$7)"
   in
   fun t ~target ~action_summary ~author ~moderator ~subreddit ~time ->
-    with_t t ~f:(fun ((module Connection) as connection) ->
+    with_t_exn t ~f:(fun ((module Connection) as connection) ->
         let open Deferred.Result.Let_syntax in
         let%bind author_id =
           match author with
@@ -231,7 +231,7 @@ let update_subscriber_counts =
       "UPDATE subreddits SET subscribers = $1 WHERE id = $2"
   in
   fun t ~subreddits ->
-    with_t t ~f:(fun (module Connection) ->
+    with_t_exn t ~f:(fun (module Connection) ->
         Deferred.List.map subreddits ~f:(fun subreddit ->
             let open Deferred.Result.Let_syntax in
             let subreddit_id = Thing.Subreddit.id subreddit in
@@ -255,7 +255,7 @@ let update_moderator_table =
        CONFLICT DO NOTHING"
   in
   fun t ~moderators ~subreddit ->
-    with_t t ~f:(fun ((module Connection) as connection) ->
+    with_t_exn t ~f:(fun ((module Connection) as connection) ->
         let%bind.Deferred.Result () = Connection.exec delete_request subreddit in
         Deferred.List.map moderators ~f:(fun moderator ->
             let open Deferred.Result.Let_syntax in
