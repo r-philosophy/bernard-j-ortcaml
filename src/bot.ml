@@ -271,7 +271,7 @@ let database_param =
       (required (Arg_type.map string ~f:Uri.of_string))
       ~doc:"STRING postgres database"
   in
-  match Caqti_async.connect_pool ~max_idle_size:1 database with
+  match Caqti_async.connect_pool ~max_size:4 ~max_idle_size:1 database with
   | Ok v -> v
   | Error error -> raise (Caqti_error.Exn error)
 ;;
