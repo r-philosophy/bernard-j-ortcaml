@@ -35,9 +35,7 @@ module Scope : sig
 
   val request_parameter : Set.t -> string
 end = struct
-  include String
+  let request_parameter set = Set.to_list set |> String.concat ~sep:","
 
-  let request_parameter set =
-    Set.to_list set |> List.map ~f:to_string |> String.concat ~sep:","
-  ;;
+  include String
 end

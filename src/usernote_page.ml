@@ -1,5 +1,6 @@
 open! Core
 open! Import
+open Jsonaf.Export
 
 module Index_list (Param : sig
   type t [@@deriving sexp_of]

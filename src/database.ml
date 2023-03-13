@@ -71,8 +71,8 @@ module Types = struct
         match
           let%bind.Option ptime_span =
             Time_ns.to_time_float_round_nearest time_ns
-            |> Time.to_span_since_epoch
-            |> Time.Span.to_sec
+            |> Time_float.to_span_since_epoch
+            |> Time_float.Span.to_sec
             |> Ptime.Span.of_float_s
           in
           Ptime.of_span ptime_span
@@ -82,7 +82,7 @@ module Types = struct
       ~decode:(fun ptime ->
         Ptime.to_span ptime
         |> Ptime.Span.to_float_s
-        |> Time.Span.of_sec
+        |> Time_float.Span.of_sec
         |> Time_ns.Span.of_span_float_round_nearest
         |> Time_ns.of_span_since_epoch
         |> Ok)
