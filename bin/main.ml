@@ -1,4 +1,7 @@
 open! Core
 open! Async
 
-let () = Command_unix.run Bernard_j_ortcutt.Bot.command
+let () =
+  Memtrace.trace_if_requested ();
+  Command_unix.run Bernard_j_ortcutt.Bot.command
+;;
