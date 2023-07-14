@@ -55,7 +55,9 @@ module Per_subreddit = struct
       raise_s
         [%message "A moderator deleted their account. Weird!" (target : Action.Target.t)]
     | Some (rule, Some moderator) ->
-      (match%bind Database.already_acted database ~target ~moderator with
+      (match%bind
+         Database.already_acted database ~target ~restrict_to_moderator:(Some moderator)
+       with
       | true -> return `Did_not_act
       | false ->
         Log.Global.info_s
@@ -272,7 +274,7 @@ let database_param =
       (required (Arg_type.map string ~f:Uri.of_string))
       ~doc:"STRING postgres database"
   in
-  match Caqti_async.connect_pool database with
+  match Caqti_async.connect_pool ~max_size:4 ~max_idle_size:1 database with
   | Ok v -> v
   | Error error -> raise (Caqti_error.Exn error)
 ;;

@@ -4,7 +4,16 @@ open! Import
 
 type t = (Caqti_async.connection, Caqti_error.t) Caqti_async.Pool.t
 
-val already_acted : t -> target:Action.Target.t -> moderator:Username.t -> bool Deferred.t
+val with_t_exn
+  :  t
+  -> f:(Caqti_async.connection -> ('a, Caqti_error.t) Result.t Deferred.t)
+  -> 'a Deferred.t
+
+val already_acted
+  :  t
+  -> target:Action.Target.t
+  -> restrict_to_moderator:Username.t option
+  -> bool Deferred.t
 
 val record_contents
   :  t

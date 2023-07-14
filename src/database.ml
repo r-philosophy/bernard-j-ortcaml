@@ -71,8 +71,8 @@ module Types = struct
         match
           let%bind.Option ptime_span =
             Time_ns.to_time_float_round_nearest time_ns
-            |> Time.to_span_since_epoch
-            |> Time.Span.to_sec
+            |> Time_float.to_span_since_epoch
+            |> Time_float.Span.to_sec
             |> Ptime.Span.of_float_s
           in
           Ptime.of_span ptime_span
@@ -82,7 +82,7 @@ module Types = struct
       ~decode:(fun ptime ->
         Ptime.to_span ptime
         |> Ptime.Span.to_float_s
-        |> Time.Span.of_sec
+        |> Time_float.Span.of_sec
         |> Time_ns.Span.of_span_float_round_nearest
         |> Time_ns.of_span_since_epoch
         |> Ok)
@@ -97,7 +97,7 @@ end
 
 type t = (Caqti_async.connection, Caqti_error.t) Caqti_async.Pool.t
 
-let with_t (t : t) ~f =
+let with_t_exn (t : t) ~f =
   match%bind Caqti_async.Pool.use f t with
   | Ok v -> return v
   | Error error -> raise (Caqti_error.Exn (error :> Caqti_error.t))
@@ -124,16 +124,26 @@ let get_or_create_user_id =
 ;;
 
 let already_acted =
-  let request =
+  let request_filtered_by_moderator =
     Build_request.(tup2 fullname username ->! int)
       "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id AND moderator = \
        $3"
   in
-  fun t ~target ~moderator ->
-    with_t t ~f:(fun (module Connection) ->
+  let request_not_filtered_by_moderator =
+    Build_request.(fullname ->! int)
+      "SELECT COUNT(1) FROM vw_actions WHERE target = ($1, $2)::thing_id"
+  in
+  fun t ~target ~restrict_to_moderator ->
+    with_t_exn t ~f:(fun (module Connection) ->
         let open Deferred.Result.Let_syntax in
         let%bind action_count =
-          Connection.find request (target_fullname target, moderator)
+          match restrict_to_moderator with
+          | None ->
+            Connection.find request_not_filtered_by_moderator (target_fullname target)
+          | Some moderator ->
+            Connection.find
+              request_filtered_by_moderator
+              (target_fullname target, moderator)
         in
         return (action_count > 0))
 ;;
@@ -149,7 +159,7 @@ let record_contents =
        VALUES(($1,$2),$3,$4,$5,$6)"
   in
   fun t ~target ->
-    with_t t ~f:(fun ((module Connection) as connection) ->
+    with_t_exn t ~f:(fun ((module Connection) as connection) ->
         let open Deferred.Result.Let_syntax in
         let%bind author_id =
           match Action.Target.author target with
@@ -195,7 +205,7 @@ let log_rule_application =
        VALUES(($1,$2),$3,$4,$5,$6,$7)"
   in
   fun t ~target ~action_summary ~author ~moderator ~subreddit ~time ->
-    with_t t ~f:(fun ((module Connection) as connection) ->
+    with_t_exn t ~f:(fun ((module Connection) as connection) ->
         let open Deferred.Result.Let_syntax in
         let%bind author_id =
           match author with
@@ -221,7 +231,7 @@ let update_subscriber_counts =
       "UPDATE subreddits SET subscribers = $1 WHERE id = $2"
   in
   fun t ~subreddits ->
-    with_t t ~f:(fun (module Connection) ->
+    with_t_exn t ~f:(fun (module Connection) ->
         Deferred.List.map subreddits ~f:(fun subreddit ->
             let open Deferred.Result.Let_syntax in
             let subreddit_id = Thing.Subreddit.id subreddit in
@@ -245,7 +255,7 @@ let update_moderator_table =
        CONFLICT DO NOTHING"
   in
   fun t ~moderators ~subreddit ->
-    with_t t ~f:(fun ((module Connection) as connection) ->
+    with_t_exn t ~f:(fun ((module Connection) as connection) ->
         let%bind.Deferred.Result () = Connection.exec delete_request subreddit in
         Deferred.List.map moderators ~f:(fun moderator ->
             let open Deferred.Result.Let_syntax in
