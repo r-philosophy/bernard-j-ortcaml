@@ -47,11 +47,13 @@ module Note = struct
     type t =
       | Link of Thing.Link.Id.t
       | Comment of Thing.Link.Id.t * Thing.Comment.Id.t
+      | Custom_url of Uri_with_string_sexp.t
     [@@deriving sexp_of]
 
     let to_string t =
       match t with
       | Link id -> sprintf !"l,%{Thing.Link.Id}" id
+      | Custom_url url -> Uri.to_string url
       | Comment (link, comment) ->
         sprintf !"l,%{Thing.Link.Id},%{Thing.Comment.Id}" link comment
     ;;
@@ -60,7 +62,7 @@ module Note = struct
   module Spec = struct
     type t =
       { text : string
-      ; context : Context.t
+      ; context : Context.t option
       ; time : Time_ns.t
       ; moderator : Username.t
       ; warning : string
@@ -74,14 +76,16 @@ module Note = struct
     let moderator_index = Moderators.index moderators moderator in
     let warning_index = Warnings.index warnings warning in
     `Object
-      [ "n", `String text
-      ; "l", `String (Context.to_string context)
-      ; ( "t"
-        , [%jsonaf_of: int] (Time_ns.to_span_since_epoch time |> Time_ns.Span.to_int_sec)
-        )
-      ; "m", [%jsonaf_of: int] moderator_index
-      ; "w", [%jsonaf_of: int] warning_index
-      ]
+      ((match context with
+       | None -> []
+       | Some context -> [ "l", `String (Context.to_string context) ])
+      @ [ "n", `String text
+        ; ( "t"
+          , [%jsonaf_of: int] (Time_ns.to_span_since_epoch time |> Time_ns.Span.to_int_sec)
+          )
+        ; "m", [%jsonaf_of: int] moderator_index
+        ; "w", [%jsonaf_of: int] warning_index
+        ])
   ;;
 end
 

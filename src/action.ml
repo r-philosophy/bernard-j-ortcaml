@@ -425,7 +425,7 @@ let act
           ; warning = level
           ; moderator
           ; time
-          ; context = Target.usernote_context target
+          ; context = Some (Target.usernote_context target)
           };
       return ())
   | Ban { message; reason; duration } ->

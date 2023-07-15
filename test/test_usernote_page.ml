@@ -91,7 +91,7 @@ let%expect_test "Example adding a usernote with new kind" =
     ~username:(Username.of_string "L72_Elite_Kraken")
     ~spec:
       { text = "This is a new usernote"
-      ; context = Link (Thing.Link.Id.of_string "ili4vc")
+      ; context = Some (Link (Thing.Link.Id.of_string "ili4vc"))
       ; time = Time_ns.epoch
       ; moderator = Username.of_string "spez"
       ; warning = "a_note"
@@ -101,7 +101,7 @@ let%expect_test "Example adding a usernote with new kind" =
   (* We verified that this blob shows the new note when loaded on Reddit. *)
   [%expect
     {|
-    {"ver":6,"constants":{"users":["L72_Elite_Kraken","spez"],"warnings":["gooduser","a_note"]},"blob":"eJyrVvIxN4p3zcksSY33LkrMTs1TsqpWyitWsooGUkpWSiEZmcUKQJSokJdarlBanFqUl1+SqqSjlAOUzNHJzMk0KUsGckuUrAx0lHKVrAx1lMqBZK0Oun4kvUDFhmYGRoaWZqbmFmBdBhgGAg0xqI2trQUAukkvpw=="} |}];
+    {"ver":6,"constants":{"users":["L72_Elite_Kraken","spez"],"warnings":["gooduser","a_note"]},"blob":"eJyrVvIxN4p3zcksSY33LkrMTs1TsqpWyitWsoquVspRslLK0cnMyTQpS1bSUQJKKYVkZBYrAFGiQl5quUJpcWpRXn5JKlCyRMnKQEcpV8nKUEepHEjW6lSjaUBVbGhmYGRoaWZqbgHWBdSLZhvQEIPa2NpaAKeiL6c="} |}];
   let page = Jsonaf.of_string s |> [%of_jsonaf: Usernote_page.t] in
   print_s [%sexp (page : Usernote_page.t)];
   [%expect
@@ -110,7 +110,7 @@ let%expect_test "Example adding a usernote with new kind" =
      (notes
       ((L72_Elite_Kraken
         ((Object
-          ((n (String "This is a new usernote")) (l (String l,ili4vc))
+          ((l (String l,ili4vc)) (n (String "This is a new usernote"))
            (t (Number 0)) (m (Number 1)) (w (Number 1))))
          (Object
           ((n (String "This is a usernote")) (t (Number 1602196578))
