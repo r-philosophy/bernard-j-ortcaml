@@ -16,3 +16,10 @@ val add_user_notes
   -> retry_manager:Retry_manager.t
   -> subreddit:Subreddit_name.t
   -> unit Deferred.t
+
+val watch_via_automod
+  :  Retry_manager.t
+  -> subreddit:Subreddit_name.t
+  -> placeholder:string
+  -> entries:string Nonempty_list.t
+  -> unit Deferred.t

@@ -75,36 +75,12 @@ module Automod_action_buffers = struct
     Queue.enqueue queue value
   ;;
 
-  let unescape =
-    let unsafe_characters =
-      [ "&amp", "&"; "&lt", "<"; "&gt", ">" ]
-      |> List.map
-           ~f:(Tuple2.map_fst ~f:(String.Search_pattern.create ~case_sensitive:true))
-    in
-    fun html_string ->
-      List.fold
-        unsafe_characters
-        ~init:html_string
-        ~f:(fun string (pattern, replacement) ->
-          String.Search_pattern.replace_all pattern ~in_:string ~with_:replacement)
-  ;;
-
   let commit_one buffer ~retry_manager ~subreddit ~placeholder =
-    match Queue.to_list buffer with
-    | [] -> return ()
-    | to_insert ->
+    match Queue.to_list buffer |> Nonempty_list.of_list with
+    | None -> return ()
+    | Some entries ->
       Queue.clear buffer;
-      let transform_page =
-        let pattern = String.Search_pattern.create ~case_sensitive:true placeholder in
-        let replacement = String.concat (placeholder :: to_insert) ~sep:",\n  " in
-        fun content ->
-          let content = unescape content in
-          String.Search_pattern.replace_all pattern ~in_:content ~with_:replacement
-      in
-      let page : Wiki_page.Id.t =
-        { subreddit = Some subreddit; page = "config/automoderator" }
-      in
-      Utils.update_wiki_page page ~retry_manager ~f:transform_page
+      Utils.watch_via_automod retry_manager ~subreddit ~placeholder ~entries
   ;;
 
   let commit_all (t : t) ~retry_manager ~subreddit =

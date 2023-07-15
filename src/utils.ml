@@ -71,3 +71,28 @@ let add_user_notes notes ~retry_manager ~subreddit =
     let page : Wiki_page.Id.t = { subreddit = Some subreddit; page = "usernotes" } in
     update_wiki_page page ~retry_manager ~f:transform_page
 ;;
+
+let unescape_wiki_contents =
+  let unsafe_characters =
+    [ "&amp", "&"; "&lt", "<"; "&gt", ">" ]
+    |> List.map ~f:(Tuple2.map_fst ~f:(String.Search_pattern.create ~case_sensitive:true))
+  in
+  fun html_string ->
+    List.fold unsafe_characters ~init:html_string ~f:(fun string (pattern, replacement) ->
+        String.Search_pattern.replace_all pattern ~in_:string ~with_:replacement)
+;;
+
+let watch_via_automod retry_manager ~subreddit ~placeholder ~entries =
+  let entries = Nonempty_list.to_list entries in
+  let transform_page =
+    let pattern = String.Search_pattern.create ~case_sensitive:true placeholder in
+    let replacement = String.concat (placeholder :: entries) ~sep:",\n  " in
+    fun content ->
+      let content = unescape_wiki_contents content in
+      String.Search_pattern.replace_all pattern ~in_:content ~with_:replacement
+  in
+  let page : Wiki_page.Id.t =
+    { subreddit = Some subreddit; page = "config/automoderator" }
+  in
+  update_wiki_page page ~retry_manager ~f:transform_page
+;;
