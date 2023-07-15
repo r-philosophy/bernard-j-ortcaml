@@ -94,7 +94,7 @@ let%expect_test "Example adding a usernote with new kind" =
       ; context = Some (Link (Thing.Link.Id.of_string "ili4vc"))
       ; time = Time_ns.epoch
       ; moderator = Username.of_string "spez"
-      ; warning = "a_note"
+      ; warning = Some "a_note"
       };
   let s = [%jsonaf_of: Usernote_page.t] page |> Jsonaf.to_string in
   printf "%s\n" s;

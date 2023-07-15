@@ -30,11 +30,11 @@ struct
   ;;
 
   let index t element =
-    match Queue.findi t ~f:(fun _ -> [%equal: Param.t option] (Some element)) with
+    match Queue.findi t ~f:(fun _ -> [%equal: Param.t option] element) with
     | Some (i, _) -> i
     | None ->
       let result = Queue.length t in
-      Queue.enqueue t (Some element);
+      Queue.enqueue t element;
       result
   ;;
 end
@@ -65,7 +65,7 @@ module Note = struct
       ; context : Context.t option
       ; time : Time_ns.t
       ; moderator : Username.t
-      ; warning : string
+      ; warning : string option
       }
     [@@deriving sexp_of]
   end
@@ -73,7 +73,7 @@ module Note = struct
   type t = Jsonaf.t [@@deriving sexp_of]
 
   let create ({ text; context; time; moderator; warning } : Spec.t) ~moderators ~warnings =
-    let moderator_index = Moderators.index moderators moderator in
+    let moderator_index = Moderators.index moderators (Some moderator) in
     let warning_index = Warnings.index warnings warning in
     `Object
       ((match context with

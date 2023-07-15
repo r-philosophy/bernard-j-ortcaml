@@ -398,7 +398,7 @@ let act
         ~user
         ~note:
           { text
-          ; warning = level
+          ; warning = Some level
           ; moderator
           ; time
           ; context = Some (Target.usernote_context target)

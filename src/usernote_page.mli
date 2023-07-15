@@ -16,7 +16,7 @@ module Note : sig
       ; context : Context.t option
       ; time : Time_ns.t
       ; moderator : Username.t
-      ; warning : string
+      ; warning : string option
       }
     [@@deriving sexp_of]
   end
