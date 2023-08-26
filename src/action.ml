@@ -331,7 +331,7 @@ module Thread_cleanup_action_buffers = struct
 
   let commit t ~retry_manager ~subreddit:_ ~(remaining_reports : Target.t list) =
     let%bind () =
-      Deferred.List.iter remaining_reports ~f:(fun target ->
+      Deferred.List.iter remaining_reports ~how:`Sequential ~f:(fun target ->
           match target with
           | Link _ -> return ()
           | Comment comment ->

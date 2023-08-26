@@ -92,6 +92,7 @@ module Per_subreddit = struct
         let%bind () =
           Deferred.List.iter
             rule.actions
+            ~how:`Sequential
             ~f:
               (Action.act
                  ~target
@@ -108,7 +109,7 @@ module Per_subreddit = struct
     let%bind all_targets = reports t >>| List.map ~f:target_of_thing in
     let targets_acted_on = Thing.Fullname.Hash_set.create () in
     let%bind () =
-      Deferred.List.iter all_targets ~f:(fun target ->
+      Deferred.List.iter all_targets ~how:`Sequential ~f:(fun target ->
           match%bind handle_target t ~target with
           | `Did_not_act -> return ()
           | `Acted ->
@@ -137,7 +138,7 @@ let create ~subreddit_configs ~connection ~database =
   let retry_manager = Retry_manager.create connection in
   let%bind subreddits =
     Map.to_alist subreddit_configs
-    |> Deferred.List.map ~f:(fun (subreddit, rules) ->
+    |> Deferred.List.map ~how:`Sequential ~f:(fun (subreddit, rules) ->
            let%bind subreddit_id =
              Utils.retry_or_fail
                retry_manager
@@ -172,7 +173,7 @@ let refresh_subreddit_tables { subreddits; retry_manager; database } =
                 [%message "Unexpected thing in info response" (thing : Thing.Poly.t)])
   in
   let%bind () = Database.update_subscriber_counts database ~subreddits in
-  Deferred.List.iter subreddits ~f:(fun subreddit ->
+  Deferred.List.iter subreddits ~how:`Sequential ~f:(fun subreddit ->
       let subreddit_name = Thing.Subreddit.name subreddit in
       let subreddit_id = Thing.Subreddit.id subreddit in
       let%bind moderators =
@@ -222,7 +223,8 @@ let run_forever t =
     ; run_until_stop
         ~repeat_delay:(Time_ns.Span.of_string "30s")
         ~description:"Main bot loop"
-        ~f:(fun () -> Deferred.List.iter t.subreddits ~f:Per_subreddit.run_once)
+        ~f:(fun () ->
+          Deferred.List.iter t.subreddits ~how:`Sequential ~f:Per_subreddit.run_once)
     ]
 ;;
 
@@ -274,7 +276,8 @@ let database_param =
       (required (Arg_type.map string ~f:Uri.of_string))
       ~doc:"STRING postgres database"
   in
-  match Caqti_async.connect_pool ~max_size:4 ~max_idle_size:1 database with
+  let pool_config = Caqti_pool_config.create ~max_size:4 ~max_idle_size:1 () in
+  match Caqti_async.connect_pool ~pool_config database with
   | Ok v -> v
   | Error error -> raise (Caqti_error.Exn error)
 ;;
