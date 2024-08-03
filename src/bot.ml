@@ -2,6 +2,28 @@ open! Core
 open! Async
 open! Import
 
+module Metrics = struct
+  let targets_actioned =
+    Prometheus.Counter.v_label
+      "bernard_targets_actioned"
+      ~label_name:"subreddit"
+      ~help:"Actions taken by the bot"
+  ;;
+
+  let reports_seen =
+    Prometheus.Counter.v_labels
+      "bernard_reports_seen"
+      ~label_names:[ "subreddit"; "kind" ]
+      ~help:"Items seen in input stream"
+  ;;
+
+  let unhandled_errors =
+    Prometheus.Counter.v
+      "bernard_unhandled_errors"
+      ~help:"Unhandled errors raised to [run_until_stop]"
+  ;;
+end
+
 let get_full_listing here ~retry_manager ~get_listing =
   let get_one pagination =
     Utils.retry_or_fail retry_manager here (get_listing ?pagination ~limit:100 ())
@@ -110,9 +132,23 @@ module Per_subreddit = struct
     let targets_acted_on = Thing.Fullname.Hash_set.create () in
     let%bind () =
       Deferred.List.iter all_targets ~how:`Sequential ~f:(fun target ->
+          let reports_seen_metric =
+            Prometheus.Counter.labels
+              Metrics.reports_seen
+              [ Subreddit_name.to_string subreddit
+              ; Action.Target.kind target
+                |> Action.Target.Kind.sexp_of_t
+                |> Sexp.to_string
+              ]
+          in
+          Prometheus.Counter.inc_one reports_seen_metric;
           match%bind handle_target t ~target with
           | `Did_not_act -> return ()
           | `Acted ->
+            let actioned_metric =
+              Metrics.targets_actioned (Subreddit_name.to_string subreddit)
+            in
+            Prometheus.Counter.inc_one actioned_metric;
             Hash_set.add targets_acted_on (Action.Target.fullname target);
             return ())
     in
@@ -205,6 +241,7 @@ let run_forever t =
         match%bind Monitor.try_with_or_error f with
         | Ok () -> repeat_or_exit_early repeat_delay
         | Error error ->
+          Prometheus.Counter.inc_one Metrics.unhandled_errors;
           let retry_delay = Time_ns.Span.minute in
           Log.Global.error_s
             [%message
