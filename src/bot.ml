@@ -319,13 +319,34 @@ let database_param =
   | Error error -> raise (Caqti_error.Exn error)
 ;;
 
+let serve_metrics port =
+  let where_to_listen = Tcp.Where_to_listen.of_port port in
+  Cohttp_async.Server.create
+    where_to_listen
+    (fun ~body _address request -> Prometheus_app.Cohttp.callback request body)
+    ~on_handler_error:
+      (`Call
+        (fun _addr exn ->
+          Log.Global.error_s [%message "Error handling Cohttp request" (exn : Exn.t)]))
+;;
+
 let param =
   let%map_open.Command connection = connection_param
   and database = database_param
   and subreddit_configs = per_subreddit_param
+  and metrics_port =
+    flag
+      "-metrics-port"
+      (optional int)
+      ~doc:"PORT Serve Prometheus metrics from requests to this port."
   and () = Log.Global.set_level_via_param () in
   fun () ->
     let%bind.Deferred.Or_error subreddit_configs = subreddit_configs in
+    let%bind _prometheus_server : _ Cohttp_async.Server.t option Deferred.t =
+      match metrics_port with
+      | None -> return None
+      | Some port -> serve_metrics port >>| Option.return
+    in
     let%bind t = create ~connection ~subreddit_configs ~database in
     let%bind () = run_forever t in
     return (Ok ())
