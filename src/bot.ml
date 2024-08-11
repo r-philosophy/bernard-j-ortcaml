@@ -4,22 +4,22 @@ open! Import
 
 module Metrics = struct
   let targets_actioned =
-    Prometheus.Counter.v_label
-      "bernard_targets_actioned"
-      ~label_name:"subreddit"
+    Prometheus.Counter.v_labels
+      "bernard_targets_actioned_total"
+      ~label_names:[ "subreddit"; "kind" ]
       ~help:"Actions taken by the bot"
   ;;
 
   let reports_seen =
     Prometheus.Counter.v_labels
-      "bernard_reports_seen"
+      "bernard_reports_seen_total"
       ~label_names:[ "subreddit"; "kind" ]
       ~help:"Items seen in input stream"
   ;;
 
   let unhandled_errors =
     Prometheus.Counter.v
-      "bernard_unhandled_errors"
+      "bernard_unhandled_errors_total"
       ~help:"Unhandled errors raised to [run_until_stop]"
   ;;
 end
@@ -132,21 +132,24 @@ module Per_subreddit = struct
     let targets_acted_on = Thing.Fullname.Hash_set.create () in
     let%bind () =
       Deferred.List.iter all_targets ~how:`Sequential ~f:(fun target ->
+          let labels_for_subreddit_and_target_kind =
+            [ Subreddit_name.to_string subreddit
+            ; Action.Target.kind target |> Action.Target.Kind.sexp_of_t |> Sexp.to_string
+            ]
+          in
           let reports_seen_metric =
             Prometheus.Counter.labels
               Metrics.reports_seen
-              [ Subreddit_name.to_string subreddit
-              ; Action.Target.kind target
-                |> Action.Target.Kind.sexp_of_t
-                |> Sexp.to_string
-              ]
+              labels_for_subreddit_and_target_kind
           in
           Prometheus.Counter.inc_one reports_seen_metric;
           match%bind handle_target t ~target with
           | `Did_not_act -> return ()
           | `Acted ->
             let actioned_metric =
-              Metrics.targets_actioned (Subreddit_name.to_string subreddit)
+              Prometheus.Counter.labels
+                Metrics.targets_actioned
+                labels_for_subreddit_and_target_kind
             in
             Prometheus.Counter.inc_one actioned_metric;
             Hash_set.add targets_acted_on (Action.Target.fullname target);
